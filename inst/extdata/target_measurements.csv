@@ -1,0 +1,11 @@
+parameter_name,notes
+TOC,Total organic carbon -- productivity/preservation context for aDNA
+TN,Total nitrogen -- paired with TOC for C/N ratio
+CaCO3,Calcium carbonate -- carbonate preservation/dissolution context
+C_N_ratio,Organic matter source (marine vs terrestrial)
+d13C_org,Organic carbon source signature
+age_model,Age-depth model -- also the basis for sedimentation rate
+porosity,Compaction/bioturbation context
+water_content,Compaction/bioturbation context
+bulk_density_wet,Compaction context
+kappa,Magnetic susceptibility -- stratigraphic correlation

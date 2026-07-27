@@ -1,0 +1,23 @@
+raw_pattern,match_type,parameter_group,parameter_name,unit_raw,species_capture_group,notes
+"^(.+) δ18O \[‰ PDB\]$",regex,isotopes,d18O,‰ PDB,1,"species-prefixed d18O e.g. 'G. inflata δ18O [‰ PDB]'"
+"^(.+) δ13C \[‰ PDB\]$",regex,isotopes,d13C,‰ PDB,1,"species-prefixed d13C e.g. 'G. sacculifer δ13C [‰ PDB]'"
+"TOC [%]",exact,toc,TOC,%,,from 00a_prep--parse_pangaea_tabs.R toc section
+"CaCO3 [%]",exact,toc,CaCO3,%,,from 00a_prep--parse_pangaea_tabs.R toc section
+"TN [%]",exact,toc,TN,%,,total nitrogen; common companion to TOC/CaCO3 files
+"C/N",exact,toc,C_N_ratio,ratio,,"confirmed live from PANGAEA.54815; not 'C/N ratio' as originally guessed"
+"δ13C Corg [‰ PDB]",exact,toc,d13C_org,‰ PDB,,"confirmed live from PANGAEA.54815; bulk organic carbon isotopes, not species-prefixed"
+"^(Susceptibility|kappa) \[10\*\*-6 SI\]$",regex,susceptibility,kappa,10**-6 SI,,from GeoB9506-1_magnetic.tab column 'kappa [10**-6 SI]'
+"Density [g/cm**3]",exact,water_density,density,g/cm**3,,seen in toc drop_cols in 00a_prep--parse_pangaea_tabs.R; belongs to water_density files
+"Poros [% vol]",exact,water_density,porosity,% vol,,"confirmed live from PANGAEA.96475; not 'Porosity [%]' as originally guessed"
+"Water wm [%]",exact,water_density,water_content,%,,"confirmed live from PANGAEA.96475; not 'Water content [%]' as originally guessed"
+"DBD [g/cm**3]",exact,water_density,bulk_density_dry,g/cm**3,,confirmed live from PANGAEA.96475
+"WBD [g/cm**3]",exact,water_density,bulk_density_wet,g/cm**3,,confirmed live from PANGAEA.96475
+"C37:3Me [ng/g]",exact,biomarkers,C37_3Me,ng/g,,alkenone paleothermometry; confirmed live from PANGAEA.54904
+"C37:2Me [ng/g]",exact,biomarkers,C37_2Me,ng/g,,alkenone paleothermometry; confirmed live from PANGAEA.54904
+"K37 [ng/g]",exact,biomarkers,K37,ng/g,,alkenone paleothermometry; confirmed live from PANGAEA.54904
+"UK'37",exact,biomarkers,UK37,index,,"unitless alkenone unsaturation index; confirmed live from PANGAEA.54904"
+"SST (1-12) [°C]",exact,biomarkers,SST,°C,,"annual-mean SST derived from UK'37; confirmed live from PANGAEA.54904 -- other datasets may use a differently-worded SST column, append as encountered"
+"Age model [ka]",exact,age,age_model,ka,,confirmed live from PANGAEA.734358
+"Fe [µmol/l]",exact,porewater_chemistry,Fe,µmol/l,,confirmed live from PANGAEA.104672
+"[PO4]3- [µmol/l]",exact,porewater_chemistry,PO4,µmol/l,,confirmed live from PANGAEA.87950
+"Si(OH)4 [µmol/l]",exact,porewater_chemistry,Si_OH_4,µmol/l,,confirmed live from PANGAEA.52909

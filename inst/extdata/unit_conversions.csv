@@ -1,0 +1,23 @@
+parameter_name,unit_raw,unit_target,multiplier,offset
+d18O,‰ PDB,‰ PDB,1,0
+d13C,‰ PDB,‰ PDB,1,0
+TOC,%,%,1,0
+CaCO3,%,%,1,0
+TN,%,%,1,0
+C_N_ratio,ratio,ratio,1,0
+d13C_org,‰ PDB,‰ PDB,1,0
+kappa,10**-6 SI,10**-6 SI,1,0
+density,g/cm**3,g/cm**3,1,0
+porosity,% vol,% vol,1,0
+water_content,%,%,1,0
+bulk_density_dry,g/cm**3,g/cm**3,1,0
+bulk_density_wet,g/cm**3,g/cm**3,1,0
+C37_3Me,ng/g,ng/g,1,0
+C37_2Me,ng/g,ng/g,1,0
+K37,ng/g,ng/g,1,0
+UK37,index,index,1,0
+SST,°C,°C,1,0
+age_model,ka,ka,1,0
+Fe,µmol/l,µmol/l,1,0
+PO4,µmol/l,µmol/l,1,0
+Si_OH_4,µmol/l,µmol/l,1,0

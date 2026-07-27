@@ -1,0 +1,152 @@
+---
+title: "Getting started with sedacore"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting started with sedacore}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(sedacore)
+```
+
+This walks through the same workflow the Shiny app (`run_sedacore_app()`)
+wires together interactively -- map, retrieve from PANGAEA, find
+neighbours, harmonize, interpolate, export -- but calling the underlying
+functions directly from a script. Every step here also works as a
+building block for a larger, scripted metaanalysis pipeline that doesn't
+need the app at all.
+
+The steps that call the live PANGAEA API are shown but not run here (to
+keep this vignette buildable offline and independent of PANGAEA's
+uptime); everything else runs for real against the package's bundled
+synthetic example file.
+
+## 1. Map your cores
+
+The input is one row per subsample -- see `vignette("sedacore")`'s
+package README section "Input format" for the full column reference.
+Only `core_id`, `latitude`, `longitude`, and `depth_cm` are required;
+`as_sample_registry()` maps your raw column names onto that standardized
+shape.
+
+```{r}
+raw <- readr::read_tsv(
+  system.file("extdata", "example_core_metadata.tsv", package = "sedacore"),
+  show_col_types = FALSE
+)
+
+sr <- as_sample_registry(raw)
+cr <- collapse_to_core_registry(sr)
+cr[, c("core_id", "latitude", "longitude", "n_samples", "depth_min_cm", "depth_max_cm")]
+```
+
+`collapse_to_core_registry()` derives one row per physical core from the
+per-sample table -- the unit the map, PANGAEA retrieval, and neighbour
+search all operate on.
+
+```{r, fig.width = 7, fig.height = 4}
+plot_core_map(cr)
+```
+
+`leaflet_core_map(cr)` gives the same thing as an interactive widget
+(what the app's "Map" tab uses); omitted here since it doesn't render in
+a static vignette.
+
+## 2. Retrieve matching PANGAEA datasets
+
+`pg_search_cores()` searches PANGAEA near a core's coordinates;
+`pg_fetch_dataset()` retrieves a candidate DOI's actual data.
+
+```{r, eval = FALSE}
+candidates <- pg_search_cores(cr[cr$core_id == "EXCORE1-1", ], count = 20)
+candidates[, c("doi", "score", "citation")]
+
+fetched <- pg_fetch_dataset(candidates$doi[1])
+```
+
+## 3. Harmonize into one long table
+
+`harmonize_columns()` pivots a raw wide PANGAEA table into the package's
+long `param_long` format, matching column names against
+`inst/extdata/column_synonyms.csv`. Every numeric column is kept even if
+it isn't yet in that table (tagged `parameter_group = "uncategorized"`
+instead of dropped) -- PANGAEA's column naming is too inconsistent
+across datasets to risk silently losing real measurements.
+
+```{r}
+# A small stand-in for `fetched$data[[1]]` above, shaped like a real
+# PANGAEA isotope table, so this step runs offline in the vignette.
+raw_pangaea_table <- tibble::tibble(
+  `Depth sed [m]` = c(0.03, 0.08, 0.13, 0.18),
+  `G. inflata δ18O [‰ PDB]` = c(1.46, 1.12, 0.91, 0.85),
+  `TOC [%]` = c(2.1, 2.3, 2.0, 1.9)
+)
+
+h <- harmonize_columns(raw_pangaea_table, core_id = "EXCORE1-1", doi = "10.1594/PANGAEA.218244")
+h
+```
+
+## 4. Find neighbouring cores
+
+Some cores have no PANGAEA data of their own; `find_neighbours()`
+searches within a radius and ranks results GeoB/IODP-first, most-recent
+first (PANGAEA's own search relevance isn't distance-aware).
+
+```{r, eval = FALSE}
+neighbours <- find_neighbours(cr, "EXCORE1-1", radius_km = 50, count = 50)
+neighbours[, c("neighbour_core_id", "neighbour_doi", "distance_km", "source_program")]
+```
+
+## 5. Depth-match against your sample depths
+
+`report_depth_coverage()` matches (or linearly interpolates) harmonized
+measurements onto a set of target depths -- e.g. sedaDNA sample
+depths -- and always returns one row per (depth, parameter) combination,
+even when nothing was found there, flagged via `match_status`. That
+makes a genuine coverage gap (e.g. retrieved data at 300-1000 cm when
+your samples are at 40-200 cm) visible instead of silently returning
+nothing.
+
+```{r}
+sample_depths <- c(3, 8, 15)
+report_depth_coverage(h, sample_depths)
+```
+
+## 6. Check a fixed measurement checklist
+
+`check_target_measurements()` cross-references a short list of
+parameters of particular interest (`inst/extdata/target_measurements.csv`
+-- TOC, TN, CaCO3, age model, ... edit that file to change the list)
+against what's actually been retrieved for a core, so it's clear at a
+glance what's still missing.
+
+```{r}
+check_target_measurements(h, "EXCORE1-1")
+```
+
+## 7. Export
+
+```{r, eval = FALSE}
+write_harmonized_tsv(h, "harmonized.tsv")
+```
+
+## Or just use the app
+
+Everything above is exactly what `run_sedacore_app()` wires together
+into an interactive Shiny app -- map on one side, retrieve/harmonize/
+interpolate/export controls on the other. Reach for the functions
+directly when scripting a larger pipeline; reach for the app for
+interactive, exploratory work on one core metadata file at a time.
+
+```{r, eval = FALSE}
+run_sedacore_app()
+```
