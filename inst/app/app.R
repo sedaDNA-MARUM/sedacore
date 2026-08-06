@@ -38,7 +38,8 @@ doi_link <- function(doi) {
 empty_search_results <- function() {
   tibble::tibble(
     core_id = character(), score = numeric(), doi = character(),
-    size = numeric(), size_measure = character(), citation = character()
+    size = numeric(), size_measure = character(), citation = character(),
+    available_parameters = character()
   )
 }
 
@@ -112,9 +113,12 @@ ui <- fluidPage(
         "PANGAEA data is wildly inconsistent across datasets -- when set,",
         "this restricts harmonizing and interpolating to only the selected",
         "parameter_name(s), instead of pulling in everything a dataset",
-        "happens to contain, and also requires neighbour search results to",
-        "have at least one of these parameters (e.g. only show neighbours",
-        "with TOC data). Leave empty for the default (keep/show everything)."
+        "happens to contain, and also requires PANGAEA search and",
+        "neighbour search results to have at least one of these",
+        "parameters (e.g. only show results with TOC data) -- checking",
+        "this for a plain search costs extra requests (each result has",
+        "to be fetched), so it's slower than leaving it empty. Leave",
+        "empty for the default (keep/show everything)."
       ),
       tags$hr(),
       tags$h4("Retrieve from PANGAEA"),
@@ -305,11 +309,34 @@ server <- function(input, output, session) {
   observeEvent(input$search_btn, {
     req(rv$core_registry, input$active_core)
     row <- rv$core_registry[rv$core_registry$core_id == input$active_core, ]
-    append_log(sprintf("Searching PANGAEA for %s...", input$active_core))
-    res <- tryCatch(pg_search_cores(row, count = 20), error = function(e) {
-      append_log(paste("ERROR:", conditionMessage(e)))
-      NULL
+    # Reuses the same measurement_filter control as harmonize/interpolate
+    # and neighbour search -- when set, this is real additive cost (each
+    # result has to be fetched to check its actual parameters, unlike
+    # find_neighbours()'s equivalent filter, which reuses fetches it
+    # makes anyway), hence the progress bar.
+    required_parameters <- if (length(input$measurement_filter) > 0) input$measurement_filter else NULL
+    filter_note <- if (!is.null(required_parameters)) {
+      sprintf(", requiring one of: %s", paste(required_parameters, collapse = ", "))
+    } else {
+      ""
+    }
+    append_log(sprintf("Searching PANGAEA for %s%s...", input$active_core, filter_note))
+
+    res <- withProgress(message = "Searching PANGAEA", value = 0, {
+      tryCatch(
+        pg_search_cores(
+          row, count = 20, required_parameters = required_parameters,
+          progress = function(i, n, doi) {
+            setProgress(value = i / n, detail = sprintf("Checking result %d of %d...", i, n))
+          }
+        ),
+        error = function(e) {
+          append_log(paste("ERROR:", conditionMessage(e)))
+          NULL
+        }
+      )
     })
+
     if (!is.null(res)) {
       rv$search_results <- res
       append_log(sprintf("Found %d candidate datasets.", nrow(res)))
@@ -318,7 +345,7 @@ server <- function(input, output, session) {
 
   output$search_results <- DT::renderDataTable({
     DT::datatable(
-      rv$search_results[, c("doi", "score", "size", "size_measure", "citation")],
+      rv$search_results[, c("doi", "score", "size", "size_measure", "available_parameters", "citation")],
       selection = "multiple", options = list(pageLength = 5, scrollX = TRUE)
     )
   })

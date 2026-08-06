@@ -4,16 +4,35 @@
 \alias{pg_search_cores}
 \title{Search PANGAEA for datasets matching each core}
 \usage{
-pg_search_cores(x, count = 20)
+pg_search_cores(x, count = 20, required_parameters = NULL, progress = NULL)
 }
 \arguments{
 \item{x}{A \code{core_registry}, as produced by \code{\link[=collapse_to_core_registry]{collapse_to_core_registry()}}.}
 
 \item{count}{Max results to request per core from PANGAEA.}
+
+\item{required_parameters}{Optional character vector of
+\code{parameter_name}s (see \code{\link[=harmonize_columns]{harmonize_columns()}}/\code{column_synonyms.csv});
+if given, each result is additionally fetched and harmonized to check
+whether it actually has at least one of these parameters (OR
+semantics), and results with none of them are dropped -- e.g. "only
+show search results that have TOC data". \code{NULL} (default) skips this
+entirely, keeping the default search exactly as fast/cheap as a plain
+text search (\code{pg_search()} alone doesn't know about parameter
+content, so checking it means fetching every result's actual data --
+real, additive cost, unlike \code{\link[=find_neighbours]{find_neighbours()}}'s equivalent filter,
+which reuses fetches it has to make anyway). When set, an
+\code{available_parameters} column always records what was found (\code{NA}
+when not checked, i.e. \code{required_parameters} is \code{NULL}).}
+
+\item{progress}{Optional \verb{function(i, n, doi)}, called after each of
+the \code{n} results is checked when \code{required_parameters} is set (see
+\code{\link[=find_neighbours]{find_neighbours()}}'s equivalent argument) -- otherwise never called,
+since nothing is fetched.}
 }
 \value{
 A tibble with one row per (core, search hit): \code{core_id}, \code{score},
-\code{doi}, \code{size}, \code{size_measure}, \code{citation}.
+\code{doi}, \code{size}, \code{size_measure}, \code{citation}, \code{available_parameters}.
 }
 \description{
 Runs a \code{\link[pangaear:pg_search]{pangaear::pg_search()}} text query per core (by \code{core_id}) and

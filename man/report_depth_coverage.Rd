@@ -30,6 +30,11 @@ the sample-depth range at all), or \code{"gap too large to interpolate"}
 (they do overlap, but no bracketing pair was close enough).
 \item \code{measured_depth_min}/\code{measured_depth_max}: this parameter's own
 retrieved depth range in \code{x}, for building diagnostic messages.
+\item \code{bracket_depth_min_cm}/\code{bracket_depth_max_cm}: the real source
+depth(s) (in \code{core_id}, which may be a neighbour core, not the one
+\code{sample_depths} belongs to) this row's value was actually matched
+from -- see \code{\link[=interpolate_depth_series]{interpolate_depth_series()}} for the exact-vs-
+interpolated distinction. \code{NA} on unresolved rows.
 \code{core_id}/\code{pangaea_doi}/\code{value}/etc. are \code{NA} on unresolved rows.
 }
 }

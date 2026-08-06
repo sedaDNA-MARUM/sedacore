@@ -46,6 +46,16 @@ find_neighbours_by_depth <- function(x, targets, tolerance_cm) {
 #' @noRd
 interpolate_one_group <- function(g, target_depths, method, gap_multiplier) {
   exact_rows <- g[g$depth_cm %in% target_depths, ]
+  # An exact match isn't bracketed by two different real depths -- it *is*
+  # one, so both bounds collapse to the same value. Together with
+  # depth_cm (the target/sample depth) and core_id (which core this row's
+  # real measurement actually came from -- possibly a neighbour, not the
+  # target core itself), this makes every row fully traceable back to the
+  # real source data it came from.
+  if (nrow(exact_rows) > 0) {
+    exact_rows$bracket_depth_min_cm <- exact_rows$depth_cm
+    exact_rows$bracket_depth_max_cm <- exact_rows$depth_cm
+  }
 
   remaining_targets <- setdiff(target_depths, g$depth_cm)
   if (length(remaining_targets) == 0 || nrow(g) < 2) {
@@ -81,7 +91,8 @@ interpolate_one_group <- function(g, target_depths, method, gap_multiplier) {
       parameter_group = g$parameter_group[1], parameter_name = g$parameter_name[1],
       species = g$species[1], value = val, unit = g$unit[1],
       raw_column_name = NA_character_, is_interpolated = TRUE,
-      interp_gap_cm = hi - lo, retrieved_at = Sys.time()
+      interp_gap_cm = hi - lo, retrieved_at = Sys.time(),
+      bracket_depth_min_cm = lo, bracket_depth_max_cm = hi
     )
   })
 
@@ -111,7 +122,16 @@ interpolate_one_group <- function(g, target_depths, method, gap_multiplier) {
 #' Every interpolated row is stamped `is_interpolated = TRUE` with
 #' `interp_gap_cm` recording the bracketing gap, so downstream analyses
 #' can trivially `dplyr::filter(!is_interpolated)` to get only the
-#' directly-measured subset of this depth-matched table.
+#' directly-measured subset of this depth-matched table. Two more columns,
+#' `bracket_depth_min_cm`/`bracket_depth_max_cm`, record the *real* source
+#' depth(s) a row actually came from -- for an exact match these both
+#' equal `depth_cm` itself; for an interpolated estimate they're the two
+#' real bracketing measurements it was computed between. Combined with
+#' `depth_cm` (the target/sample depth being matched to) and `core_id`
+#' (which core that real measurement actually came from -- e.g. a
+#' neighbour, when depth-matching borrowed data), every row is fully
+#' traceable: target depth, in which core, matched from which real
+#' source depth(s), in which core.
 #'
 #' @param x A `param_long` tibble of measured values (rows already flagged
 #'   `is_interpolated = TRUE` are ignored as interpolation inputs).
@@ -126,8 +146,9 @@ interpolate_one_group <- function(g, target_depths, method, gap_multiplier) {
 #'   allowed between the two measurements bracketing a target depth.
 #' @return A `param_long` tibble with one row per `(target depth,
 #'   parameter_group, parameter_name, species)` that could be resolved --
-#'   an exact measurement or an interpolated estimate. This is a new,
-#'   separate table; it is not merged into `x`.
+#'   an exact measurement or an interpolated estimate -- plus
+#'   `bracket_depth_min_cm`/`bracket_depth_max_cm` (see Details). This is
+#'   a new, separate table; it is not merged into `x`.
 #' @export
 interpolate_depth_series <- function(x, targets,
                                       method = c("linear", "spline"),
@@ -161,7 +182,8 @@ interpolate_depth_series <- function(x, targets,
       parameter_group = character(), parameter_name = character(),
       species = character(), value = numeric(), unit = character(),
       raw_column_name = character(), is_interpolated = logical(),
-      interp_gap_cm = numeric(), retrieved_at = as.POSIXct(character())
+      interp_gap_cm = numeric(), retrieved_at = as.POSIXct(character()),
+      bracket_depth_min_cm = numeric(), bracket_depth_max_cm = numeric()
     )
   }
 
@@ -207,6 +229,11 @@ cross_depths_params <- function(sample_depths, params) {
 #'     (they do overlap, but no bracketing pair was close enough).
 #'   - `measured_depth_min`/`measured_depth_max`: this parameter's own
 #'     retrieved depth range in `x`, for building diagnostic messages.
+#'   - `bracket_depth_min_cm`/`bracket_depth_max_cm`: the real source
+#'     depth(s) (in `core_id`, which may be a neighbour core, not the one
+#'     `sample_depths` belongs to) this row's value was actually matched
+#'     from -- see [interpolate_depth_series()] for the exact-vs-
+#'     interpolated distinction. `NA` on unresolved rows.
 #'   `core_id`/`pangaea_doi`/`value`/etc. are `NA` on unresolved rows.
 #' @export
 report_depth_coverage <- function(x, sample_depths,
@@ -268,6 +295,7 @@ report_depth_coverage <- function(x, sample_depths,
     "core_id", "pangaea_doi", "depth_cm", "parameter_group", "parameter_name",
     "species", "value", "unit", "raw_column_name", "is_interpolated",
     "interp_gap_cm", "retrieved_at", "match_status",
+    "bracket_depth_min_cm", "bracket_depth_max_cm",
     "measured_depth_min", "measured_depth_max"
   )
 

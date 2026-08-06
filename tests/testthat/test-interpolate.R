@@ -19,6 +19,10 @@ test_that("interpolate_depth_series linearly interpolates a mid-gap depth", {
   expect_equal(out$value, 0.5)
   expect_true(out$is_interpolated)
   expect_equal(out$interp_gap_cm, 10)
+  # The real bracketing depths (0 and 10) this estimate was computed
+  # between, distinct from depth_cm (5, the target/sample depth).
+  expect_equal(out$bracket_depth_min_cm, 0)
+  expect_equal(out$bracket_depth_max_cm, 10)
 })
 
 test_that("interpolate_depth_series does not extrapolate beyond the measured range", {
@@ -49,6 +53,10 @@ test_that("interpolate_depth_series returns already-measured target depths as ex
   expect_equal(out$value, 1)
   expect_false(out$is_interpolated)
   expect_true(is.na(out$interp_gap_cm))
+  # An exact match isn't bracketed by two different depths -- both
+  # bounds collapse to the real (== target) depth itself.
+  expect_equal(out$bracket_depth_min_cm, 10)
+  expect_equal(out$bracket_depth_max_cm, 10)
 })
 
 test_that("interpolate_depth_series keeps groups (parameter/species) separate", {
@@ -118,6 +126,8 @@ test_that("report_depth_coverage flags sample depths outside the retrieved depth
   expect_equal(nrow(out), 2)
   expect_true(all(out$match_status == "no data in that depth range"))
   expect_true(all(is.na(out$value)))
+  expect_true(all(is.na(out$bracket_depth_min_cm)))
+  expect_true(all(is.na(out$bracket_depth_max_cm)))
   expect_equal(unique(out$measured_depth_min), 300)
   expect_equal(unique(out$measured_depth_max), 1000)
 })
@@ -142,6 +152,13 @@ test_that("report_depth_coverage matches data borrowed from a different core_id 
   expect_equal(out$core_id[out$depth_cm == 0], "GeoB1706-2")
   expect_equal(out$match_status[out$depth_cm == 0], "measured")
   expect_equal(out$match_status[out$depth_cm == 5], "interpolated")
+  # The real depths this came from are the neighbour's own (0 and 10,
+  # both in core_id "GeoB1706-2"), distinct from depth_cm (the target
+  # core's own sample depths, 0 and 5).
+  expect_equal(out$bracket_depth_min_cm[out$depth_cm == 0], 0)
+  expect_equal(out$bracket_depth_max_cm[out$depth_cm == 0], 0)
+  expect_equal(out$bracket_depth_min_cm[out$depth_cm == 5], 0)
+  expect_equal(out$bracket_depth_max_cm[out$depth_cm == 5], 10)
 })
 
 test_that("report_depth_coverage keeps parameters separate when only one has coverage", {

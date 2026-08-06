@@ -29,8 +29,9 @@ allowed between the two measurements bracketing a target depth.}
 }
 \value{
 A \code{param_long} tibble with one row per \verb{(target depth, parameter_group, parameter_name, species)} that could be resolved --
-an exact measurement or an interpolated estimate. This is a new,
-separate table; it is not merged into \code{x}.
+an exact measurement or an interpolated estimate -- plus
+\code{bracket_depth_min_cm}/\code{bracket_depth_max_cm} (see Details). This is
+a new, separate table; it is not merged into \code{x}.
 }
 \description{
 Builds a \strong{separate, depth-aligned view} of \code{x} at exactly the
@@ -55,5 +56,14 @@ the result.
 Every interpolated row is stamped \code{is_interpolated = TRUE} with
 \code{interp_gap_cm} recording the bracketing gap, so downstream analyses
 can trivially \code{dplyr::filter(!is_interpolated)} to get only the
-directly-measured subset of this depth-matched table.
+directly-measured subset of this depth-matched table. Two more columns,
+\code{bracket_depth_min_cm}/\code{bracket_depth_max_cm}, record the \emph{real} source
+depth(s) a row actually came from -- for an exact match these both
+equal \code{depth_cm} itself; for an interpolated estimate they're the two
+real bracketing measurements it was computed between. Combined with
+\code{depth_cm} (the target/sample depth being matched to) and \code{core_id}
+(which core that real measurement actually came from -- e.g. a
+neighbour, when depth-matching borrowed data), every row is fully
+traceable: target depth, in which core, matched from which real
+source depth(s), in which core.
 }
