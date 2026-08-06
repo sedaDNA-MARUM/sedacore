@@ -71,7 +71,8 @@ test_that("leaflet_core_map adds a second layer + legend when neighbours are sup
     neighbour_core_id = "SOME-OTHER-CORE",
     latitude = cr$latitude[1] + 0.1, longitude = cr$longitude[1] + 0.1,
     distance_km = 12, source_program = "other", date_time = as.POSIXct(NA),
-    citation = "Some citation", included_in_export = TRUE
+    citation = "Some citation", available_parameters = NA_character_,
+    included_in_export = TRUE
   ))
 
   m <- leaflet_core_map(cr, neighbours = nb)
@@ -88,7 +89,8 @@ test_that("leaflet_core_map drops neighbour rows with missing coordinates withou
     neighbour_core_id = "NO-COORDS",
     latitude = NA_real_, longitude = NA_real_,
     distance_km = NA_real_, source_program = "other", date_time = as.POSIXct(NA),
-    citation = "Some citation", included_in_export = TRUE
+    citation = "Some citation", available_parameters = NA_character_,
+    included_in_export = TRUE
   ))
 
   m <- leaflet_core_map(cr, neighbours = nb)

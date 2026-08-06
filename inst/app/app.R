@@ -48,7 +48,7 @@ empty_neighbour_results <- function() {
     neighbour_core_id = character(), latitude = numeric(), longitude = numeric(),
     distance_km = numeric(), source_program = character(),
     date_time = as.POSIXct(character()), citation = character(),
-    included_in_export = logical()
+    available_parameters = character(), included_in_export = logical()
   ))
 }
 
@@ -110,10 +110,11 @@ ui <- fluidPage(
       actionLink("use_target_checklist_btn", "Use target checklist"),
       helpText(
         "PANGAEA data is wildly inconsistent across datasets -- when set,",
-        "this restricts both harmonizing (fetch/neighbour buttons below)",
-        "and interpolating to only the selected parameter_name(s), instead",
-        "of pulling in everything a dataset happens to contain. Leave empty",
-        "for the default (keep everything)."
+        "this restricts harmonizing and interpolating to only the selected",
+        "parameter_name(s), instead of pulling in everything a dataset",
+        "happens to contain, and also requires neighbour search results to",
+        "have at least one of these parameters (e.g. only show neighbours",
+        "with TOC data). Leave empty for the default (keep/show everything)."
       ),
       tags$hr(),
       tags$h4("Retrieve from PANGAEA"),
@@ -352,10 +353,21 @@ server <- function(input, output, session) {
       append_log("Select at least one source program before searching for neighbours.")
       return(invisible())
     }
+    # Reuses the same measurement_filter control used to restrict
+    # harmonize/interpolate -- one "measurements I care about" setting,
+    # applied everywhere. Costs no extra PANGAEA requests (see
+    # find_neighbours()'s required_parameters docs): every candidate's
+    # data is already fetched to read its coordinates.
+    required_parameters <- if (length(input$measurement_filter) > 0) input$measurement_filter else NULL
+    filter_note <- if (!is.null(required_parameters)) {
+      sprintf(", requiring one of: %s", paste(required_parameters, collapse = ", "))
+    } else {
+      ""
+    }
     append_log(sprintf(
-      "Searching neighbours within %s km of %s (programs: %s, up to %s candidates)...",
+      "Searching neighbours within %s km of %s (programs: %s, up to %s candidates%s)...",
       input$radius_km, input$active_core,
-      paste(input$neighbour_source_programs, collapse = ", "), input$neighbour_count
+      paste(input$neighbour_source_programs, collapse = ", "), input$neighbour_count, filter_note
     ))
 
     res <- withProgress(message = "Searching PANGAEA for neighbours", value = 0, {
@@ -364,6 +376,7 @@ server <- function(input, output, session) {
           rv$core_registry, input$active_core,
           radius_km = input$radius_km, count = input$neighbour_count,
           source_programs = input$neighbour_source_programs,
+          required_parameters = required_parameters,
           progress = function(i, n, doi) {
             setProgress(value = i / n, detail = sprintf("Checking candidate %d of %d...", i, n))
           }
@@ -387,7 +400,7 @@ server <- function(input, output, session) {
   output$neighbour_results <- DT::renderDataTable({
     display <- rv$neighbour_results[, c(
       "neighbour_core_id", "neighbour_doi", "distance_km", "source_program",
-      "date_time", "citation"
+      "date_time", "available_parameters", "citation"
     )]
     display$neighbour_doi <- doi_link(display$neighbour_doi)
     DT::datatable(

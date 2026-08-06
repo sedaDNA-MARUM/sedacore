@@ -16,7 +16,7 @@ is_neighbour_registry(x)
 \item{x}{A data frame with at least the columns \code{core_id},
 \code{neighbour_doi}, \code{neighbour_core_id}, \code{latitude}, \code{longitude},
 \code{distance_km}, \code{source_program}, \code{date_time}, \code{citation},
-\code{included_in_export}.}
+\code{available_parameters}, \code{included_in_export}.}
 }
 \value{
 A \code{neighbour_registry} tibble.

@@ -11,7 +11,8 @@ find_neighbours(
   count = 200,
   progress = NULL,
   source_programs = NULL,
-  query = "\\"Depth sed\\""
+  query = "\\"Depth sed\\"",
+  required_parameters = NULL
 )
 }
 \arguments{
@@ -55,6 +56,18 @@ moorings/sensors/compilations rather than cores) the genuinely
 closest cores can rank far outside any practical \code{count}. Restricting
 to \code{"Depth sed"} cuts the candidate pool from thousands to hundreds
 in such regions and reliably surfaces real nearby cores instead.}
+
+\item{required_parameters}{Optional character vector of
+\code{parameter_name}s (see \code{\link[=harmonize_columns]{harmonize_columns()}}/\code{column_synonyms.csv});
+if given, only candidates with at least one of these parameters are
+returned (OR semantics, matching \code{source_programs}) -- e.g. "only
+show neighbours that actually have TOC data". \code{NULL} (default) keeps
+all candidates. This costs no extra PANGAEA requests: every
+candidate's data is already fetched to read its coordinates (see
+Details), so checking parameter availability just reuses that same
+in-memory data via \code{\link[=harmonize_columns]{harmonize_columns()}}. Regardless of whether this
+filter is set, every candidate's actually-found parameters are always
+recorded in the result's \code{available_parameters} column.}
 }
 \value{
 A \code{neighbour_registry} tibble, sorted with \code{"GeoB"} cores

@@ -116,6 +116,17 @@ circle_filter <- function(x, center_lat, center_lon, radius_km) {
 #'   closest cores can rank far outside any practical `count`. Restricting
 #'   to `"Depth sed"` cuts the candidate pool from thousands to hundreds
 #'   in such regions and reliably surfaces real nearby cores instead.
+#' @param required_parameters Optional character vector of
+#'   `parameter_name`s (see [harmonize_columns()]/`column_synonyms.csv`);
+#'   if given, only candidates with at least one of these parameters are
+#'   returned (OR semantics, matching `source_programs`) -- e.g. "only
+#'   show neighbours that actually have TOC data". `NULL` (default) keeps
+#'   all candidates. This costs no extra PANGAEA requests: every
+#'   candidate's data is already fetched to read its coordinates (see
+#'   Details), so checking parameter availability just reuses that same
+#'   in-memory data via [harmonize_columns()]. Regardless of whether this
+#'   filter is set, every candidate's actually-found parameters are always
+#'   recorded in the result's `available_parameters` column.
 #' @return A `neighbour_registry` tibble, sorted with `"GeoB"` cores
 #'   first, then `"IODP"`, then `"ODP"`/`"DSDP"`/`"other"`, and within each
 #'   of those groups by `date_time` descending (most recently collected
@@ -124,7 +135,8 @@ circle_filter <- function(x, center_lat, center_lon, radius_km) {
 #'   likely to be well-documented/complete.
 #' @export
 find_neighbours <- function(x, core_id, radius_km, count = 200, progress = NULL,
-                             source_programs = NULL, query = "\"Depth sed\"") {
+                             source_programs = NULL, query = "\"Depth sed\"",
+                             required_parameters = NULL) {
   validate_core_registry(x)
   row <- x[x$core_id == core_id, ]
   if (nrow(row) != 1) {
@@ -136,7 +148,7 @@ find_neighbours <- function(x, core_id, radius_km, count = 200, progress = NULL,
     neighbour_core_id = character(), latitude = numeric(), longitude = numeric(),
     distance_km = numeric(), source_program = character(),
     date_time = as.POSIXct(character()), citation = character(),
-    included_in_export = logical()
+    available_parameters = character(), included_in_export = logical()
   ))
 
   bbox <- bbox_from_radius(row$latitude, row$longitude, radius_km)
@@ -157,7 +169,23 @@ find_neighbours <- function(x, core_id, radius_km, count = 200, progress = NULL,
     if (is.null(fetched) || nrow(fetched) == 0) {
       return(tibble::tibble())
     }
-    fetched[, c("doi", "event_label", "latitude", "longitude", "date_time", "citation")]
+    # Every candidate's raw data is already in memory at this point (it
+    # had to be fetched to read off coordinates) -- reuse it here to
+    # record which parameters this candidate actually has, at no extra
+    # network cost. A candidate failing to harmonize (e.g. no "Depth
+    # sed" column despite matching the bbox query) just means "no
+    # parameters known", not a hard error for the whole search.
+    fetched$available_parameters <- vapply(seq_len(nrow(fetched)), function(j) {
+      h <- tryCatch(
+        harmonize_columns(fetched$data[[j]], core_id = "candidate", doi = fetched$doi[j], unmatched = "silent"),
+        error = function(e) NULL
+      )
+      if (is.null(h) || nrow(h) == 0) {
+        return(NA_character_)
+      }
+      paste(sort(unique(h$parameter_name)), collapse = ", ")
+    }, character(1))
+    fetched[, c("doi", "event_label", "latitude", "longitude", "date_time", "citation", "available_parameters")]
   })
   if (nrow(coords) == 0) {
     return(empty)
@@ -182,11 +210,21 @@ find_neighbours <- function(x, core_id, radius_km, count = 200, progress = NULL,
     source_program = classify_core_source(filtered$event_label),
     date_time = filtered$date_time,
     citation = filtered$citation,
+    available_parameters = filtered$available_parameters,
     included_in_export = TRUE
   )
 
   if (!is.null(source_programs)) {
     out <- out[out$source_program %in% source_programs, ]
+  }
+  if (!is.null(required_parameters)) {
+    has_required <- vapply(out$available_parameters, function(ap) {
+      if (is.na(ap)) {
+        return(FALSE)
+      }
+      any(trimws(strsplit(ap, ",")[[1]]) %in% required_parameters)
+    }, logical(1))
+    out <- out[has_required, ]
   }
   if (nrow(out) == 0) {
     return(empty)

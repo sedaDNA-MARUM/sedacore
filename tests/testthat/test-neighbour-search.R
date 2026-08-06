@@ -118,6 +118,53 @@ test_that("find_neighbours filters results to the requested source_programs", {
   expect_equal(nrow(none), 0)
 })
 
+test_that("find_neighbours always populates available_parameters, filter or not", {
+  cr <- new_core_registry(tibble::tibble(
+    core_id = "GeoB1706-2", core_label = "GeoB1706-2; 2003",
+    latitude = -19.561667, longitude = 11.175, water_depth_m = 980,
+    source_program = "GeoB", n_samples = 18L,
+    depth_min_cm = 5, depth_max_cm = 160, pangaea_doi = NA_character_
+  ))
+
+  vcr::use_cassette("find_neighbours_geob1706", {
+    nb <- find_neighbours(cr, "GeoB1706-2", radius_km = 100, count = 30)
+  })
+
+  expect_true("available_parameters" %in% names(nb))
+  # Not every real candidate harmonizes cleanly (e.g. no recognizable
+  # depth column) -- available_parameters can be legitimately NA for
+  # those -- but at least some real candidates should have it populated.
+  expect_true(any(!is.na(nb$available_parameters) & nzchar(nb$available_parameters)))
+})
+
+test_that("find_neighbours' required_parameters keeps only candidates with at least one match", {
+  cr <- new_core_registry(tibble::tibble(
+    core_id = "GeoB1706-2", core_label = "GeoB1706-2; 2003",
+    latitude = -19.561667, longitude = 11.175, water_depth_m = 980,
+    source_program = "GeoB", n_samples = 18L,
+    depth_min_cm = 5, depth_max_cm = 160, pangaea_doi = NA_character_
+  ))
+
+  vcr::use_cassette("find_neighbours_geob1706", {
+    filtered <- find_neighbours(
+      cr, "GeoB1706-2", radius_km = 100, count = 30,
+      required_parameters = "bulk_density_wet"
+    )
+  })
+  expect_true(is_neighbour_registry(filtered))
+  expect_true(nrow(filtered) > 0)
+  expect_true(all(grepl("bulk_density_wet", filtered$available_parameters)))
+
+  vcr::use_cassette("find_neighbours_geob1706", {
+    none <- find_neighbours(
+      cr, "GeoB1706-2", radius_km = 100, count = 30,
+      required_parameters = "definitely_not_a_real_parameter"
+    )
+  })
+  expect_true(is_neighbour_registry(none))
+  expect_equal(nrow(none), 0)
+})
+
 test_that("order_neighbours ranks GeoB first, then IODP, then others, by recency within each", {
   x <- tibble::tibble(
     neighbour_core_id = c("old-odp", "new-other", "old-geob", "new-geob", "iodp-only"),

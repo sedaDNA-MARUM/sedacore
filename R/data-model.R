@@ -37,16 +37,17 @@ schema_spec <- list(
     retrieved_at     = "POSIXct"
   ),
   neighbour_registry = list(
-    core_id             = "character",
-    neighbour_doi       = "character",
-    neighbour_core_id   = "character",
-    latitude            = "numeric",
-    longitude           = "numeric",
-    distance_km         = "numeric",
-    source_program      = "character",
-    date_time           = "POSIXct",
-    citation            = "character",
-    included_in_export  = "logical"
+    core_id               = "character",
+    neighbour_doi         = "character",
+    neighbour_core_id     = "character",
+    latitude              = "numeric",
+    longitude             = "numeric",
+    distance_km           = "numeric",
+    source_program        = "character",
+    date_time             = "POSIXct",
+    citation              = "character",
+    available_parameters  = "character",
+    included_in_export    = "logical"
   )
 )
 
@@ -187,7 +188,7 @@ is_param_long <- function(x) inherits(x, "param_long")
 #' @param x A data frame with at least the columns `core_id`,
 #'   `neighbour_doi`, `neighbour_core_id`, `latitude`, `longitude`,
 #'   `distance_km`, `source_program`, `date_time`, `citation`,
-#'   `included_in_export`.
+#'   `available_parameters`, `included_in_export`.
 #' @return A `neighbour_registry` tibble.
 #' @export
 new_neighbour_registry <- function(x) {
