@@ -1,0 +1,6 @@
+raw_pattern,match_type,parameter_group,parameter_name,unit_raw,species_capture_group,notes
+"Organic carbon (wt%)",exact,toc,TOC,wt%,,"IODP CHNS elemental analysis; confirmed live from Zenodo record 10.5281/zenodo.19867114 (Expedition 362); same canonical name as PANGAEA's TOC so both sources unify in one table"
+"Nitrogen (wt%)",exact,toc,TN,wt%,,"IODP CHNS elemental analysis; confirmed live from Zenodo record 10.5281/zenodo.19867114 (Expedition 362); same canonical name as PANGAEA's TN"
+"Carbon (wt%)",exact,chns,total_carbon,wt%,,"IODP CHNS elemental analysis -- total carbon, NOT necessarily organic-only (see Organic carbon (wt%) for that); confirmed live from Zenodo record 10.5281/zenodo.19867114"
+"Hydrogen (wt%)",exact,chns,total_hydrogen,wt%,,"IODP CHNS elemental analysis; confirmed live from Zenodo record 10.5281/zenodo.19867114"
+"Sulfur (wt%)",exact,chns,total_sulfur,wt%,,"IODP CHNS elemental analysis; confirmed live from Zenodo record 10.5281/zenodo.19867114"

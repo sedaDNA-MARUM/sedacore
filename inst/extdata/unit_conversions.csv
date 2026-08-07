@@ -21,3 +21,8 @@ age_model,ka,ka,1,0
 Fe,µmol/l,µmol/l,1,0
 PO4,µmol/l,µmol/l,1,0
 Si_OH_4,µmol/l,µmol/l,1,0
+TOC,wt%,%,1,0
+TN,wt%,%,1,0
+total_carbon,wt%,%,1,0
+total_hydrogen,wt%,%,1,0
+total_sulfur,wt%,%,1,0

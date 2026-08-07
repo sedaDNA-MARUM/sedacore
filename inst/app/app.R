@@ -23,14 +23,17 @@ empty_depth_matched_long <- function() {
   x
 }
 
-# Turns a raw PANGAEA DOI (e.g. "10.1594/PANGAEA.228750") into a
-# clickable link to its landing page, for DT columns rendered with
-# escape = FALSE for that column. NA-safe (NA stays NA, not "NA" text).
-doi_link <- function(doi) {
+# Turns a raw DOI (e.g. "10.1594/PANGAEA.228750") into a clickable link,
+# for DT columns rendered with escape = FALSE for that column. NA-safe
+# (NA stays NA, not "NA" text). base_url defaults to PANGAEA's own
+# landing-page resolver (nicer than the generic one for PANGAEA DOIs);
+# pass "https://doi.org/" for any other DOI (e.g. Zenodo's), which always
+# resolves correctly via the universal DOI registry.
+doi_link <- function(doi, base_url = "https://doi.pangaea.de/") {
   ifelse(is.na(doi), NA_character_,
     sprintf(
-      '<a href="https://doi.pangaea.de/%s" target="_blank" rel="noopener noreferrer">%s</a>',
-      doi, doi
+      '<a href="%s%s" target="_blank" rel="noopener noreferrer">%s</a>',
+      base_url, doi, doi
     )
   )
 }
@@ -40,6 +43,12 @@ empty_search_results <- function() {
     core_id = character(), score = numeric(), doi = character(),
     size = numeric(), size_measure = character(), citation = character(),
     available_parameters = character()
+  )
+}
+
+empty_zenodo_search_results <- function() {
+  tibble::tibble(
+    doi = character(), title = character(), description = character(), n_files = integer()
   )
 }
 
@@ -126,6 +135,25 @@ ui <- fluidPage(
       DT::dataTableOutput("search_results"),
       actionButton("fetch_selected_btn", "Fetch + harmonize selected", class = "btn-primary"),
       tags$hr(),
+      tags$h4("Search Zenodo (IODP)"),
+      helpText(
+        "Recent IODP expeditions aren't necessarily mirrored to PANGAEA yet",
+        "(confirmed: Expeditions 390-395 return zero PANGAEA results) --",
+        "Zenodo's IODP community often has real core-level data for them",
+        "already, e.g. elemental (CHNS) analyses. Only CHNS-type columns",
+        "are recognized so far; other Zenodo IODP measurement types will",
+        "come in as uncategorized fallback columns until added to",
+        "zenodo_column_synonyms.csv. An expedition alone can match",
+        "thousands of records (every instrument/data type on that",
+        "expedition) -- add search terms (e.g. \"CHNS\", \"geochemistry\")",
+        "to actually narrow it down to the data type you want."
+      ),
+      textInput("zenodo_expedition", "IODP expedition number (optional)", placeholder = "e.g. 362"),
+      textInput("zenodo_query", "Search terms (optional)", placeholder = "e.g. CHNS, geochemistry"),
+      actionButton("zenodo_search_btn", "Search Zenodo for active core"),
+      DT::dataTableOutput("zenodo_search_results"),
+      actionButton("zenodo_fetch_selected_btn", "Fetch + harmonize selected", class = "btn-primary"),
+      tags$hr(),
       tags$h4("Neighbouring cores"),
       numericInput("radius_km", "Radius (km)", value = 50, min = 1, max = 2000),
       numericInput("neighbour_count", "Max candidates to check", value = 50, min = 5, max = 300, step = 10),
@@ -188,6 +216,7 @@ server <- function(input, output, session) {
     param_long = empty_param_long(),
     depth_matched_long = empty_depth_matched_long(),
     search_results = empty_search_results(),
+    zenodo_search_results = empty_zenodo_search_results(),
     neighbour_results = empty_neighbour_results(),
     log = character()
   )
@@ -196,17 +225,21 @@ server <- function(input, output, session) {
     rv$log <- c(sprintf("[%s] %s", format(Sys.time(), "%H:%M:%S"), msg), rv$log)
   }
 
-  # Seed the measurement-filter choices from the full known parameter_name
-  # vocabulary (column_synonyms.csv) up front, then grow it with anything
-  # new that shows up via harmonize's fallback path (a raw column not yet
-  # in that table) so those stay selectable too, without ever dropping the
-  # user's current selection.
-  updateSelectizeInput(session, "measurement_filter",
-    choices = sort(unique(load_synonym_map()$parameter_name))
-  )
+  # Known parameter_name vocabulary from *every* synonym table (PANGAEA +
+  # Zenodo/IODP), not just PANGAEA's -- so Zenodo-only names (total_carbon
+  # etc.) are selectable in the measurement filter from the start too.
+  known_parameter_names <- function() {
+    sort(unique(c(load_synonym_map()$parameter_name, load_zenodo_synonym_map()$parameter_name)))
+  }
+
+  # Seed the measurement-filter choices up front, then grow it with
+  # anything new that shows up via harmonize's fallback path (a raw
+  # column not yet in either table) so those stay selectable too,
+  # without ever dropping the user's current selection.
+  updateSelectizeInput(session, "measurement_filter", choices = known_parameter_names())
   observeEvent(rv$param_long, {
     known <- isolate(input$measurement_filter)
-    all_choices <- sort(unique(c(load_synonym_map()$parameter_name, rv$param_long$parameter_name)))
+    all_choices <- sort(unique(c(known_parameter_names(), rv$param_long$parameter_name)))
     updateSelectizeInput(session, "measurement_filter",
       choices = all_choices, selected = known
     )
@@ -214,7 +247,7 @@ server <- function(input, output, session) {
 
   observeEvent(input$use_target_checklist_btn, {
     updateSelectizeInput(session, "measurement_filter",
-      choices = sort(unique(c(load_synonym_map()$parameter_name, rv$param_long$parameter_name, load_target_measurements()$parameter_name))),
+      choices = sort(unique(c(known_parameter_names(), rv$param_long$parameter_name, load_target_measurements()$parameter_name))),
       selected = load_target_measurements()$parameter_name
     )
   })
@@ -253,6 +286,59 @@ server <- function(input, output, session) {
     }
   })
 
+  # Shared by fetch_and_harmonize() (PANGAEA) and fetch_and_harmonize_zenodo()
+  # (Zenodo): harmonize one already-fetched raw table, apply the optional
+  # measurement filter, log, and append into rv$param_long. depth_col/
+  # synonym_map differ by source (PANGAEA vs IODP/Zenodo column
+  # conventions); synonym_csv_name is just for the fallback-columns log
+  # message, since the two sources have different CSVs to extend.
+  harmonize_and_store <- function(raw_data, core_id, doi, depth_col, synonym_map, synonym_csv_name) {
+    h <- tryCatch(
+      harmonize_columns(
+        raw_data, core_id = core_id, doi = doi,
+        depth_col = depth_col, synonym_map = synonym_map, unmatched = "warn"
+      ),
+      error = function(e) {
+        append_log(paste("ERROR harmonizing:", conditionMessage(e)))
+        NULL
+      }
+    )
+    if (is.null(h) || nrow(h) == 0) {
+      return(invisible())
+    }
+
+    fallback <- attr(h, "fallback_columns")
+    dropped <- attr(h, "dropped_columns")
+    n_before_filter <- nrow(h)
+    # Optional user-set filter (see "Measurement filter" in the sidebar)
+    # -- applied *after* harmonize_columns() so nothing is ever lost
+    # during parsing itself, only at the point of deciding what to keep.
+    if (length(input$measurement_filter) > 0) {
+      h <- h[h$parameter_name %in% input$measurement_filter, ]
+    }
+    if (nrow(h) > 0) {
+      rv$param_long <- dplyr::bind_rows(rv$param_long, h)
+      append_log(sprintf("Harmonized %d rows from %s.", nrow(h), doi))
+    } else {
+      append_log(sprintf(
+        "0 rows from %s after restricting to selected measurements (%d rows available before filtering).",
+        doi, n_before_filter
+      ))
+    }
+    if (length(fallback) > 0) {
+      append_log(sprintf(
+        "Not in %s, imported as-is: %s",
+        synonym_csv_name, paste(fallback, collapse = ", ")
+      ))
+    }
+    if (length(dropped) > 0) {
+      append_log(sprintf(
+        "Excluded (non-numeric, e.g. free-text comment fields): %s",
+        paste(dropped, collapse = ", ")
+      ))
+    }
+  }
+
   fetch_and_harmonize <- function(doi, core_id) {
     append_log(sprintf("Fetching %s for %s...", doi, core_id))
     fetched <- tryCatch(pg_fetch_dataset(doi), error = function(e) {
@@ -263,46 +349,37 @@ server <- function(input, output, session) {
       return(invisible())
     }
     for (i in seq_len(nrow(fetched))) {
-      h <- tryCatch(
-        harmonize_columns(fetched$data[[i]], core_id = core_id, doi = fetched$doi[i], unmatched = "warn"),
-        error = function(e) {
-          append_log(paste("ERROR harmonizing:", conditionMessage(e)))
-          NULL
-        }
+      harmonize_and_store(
+        fetched$data[[i]], core_id, fetched$doi[i],
+        depth_col = "Depth sed [m]", synonym_map = load_synonym_map(),
+        synonym_csv_name = "column_synonyms.csv"
       )
-      if (!is.null(h) && nrow(h) > 0) {
-        fallback <- attr(h, "fallback_columns")
-        dropped <- attr(h, "dropped_columns")
-        n_before_filter <- nrow(h)
-        # Optional user-set filter (see "Measurement filter" in the
-        # sidebar) -- applied *after* harmonize_columns() so nothing is
-        # ever lost during parsing itself, only at the point of deciding
-        # what to actually keep.
-        if (length(input$measurement_filter) > 0) {
-          h <- h[h$parameter_name %in% input$measurement_filter, ]
-        }
-        if (nrow(h) > 0) {
-          rv$param_long <- dplyr::bind_rows(rv$param_long, h)
-          append_log(sprintf("Harmonized %d rows from %s.", nrow(h), doi))
-        } else {
-          append_log(sprintf(
-            "0 rows from %s after restricting to selected measurements (%d rows available before filtering).",
-            doi, n_before_filter
-          ))
-        }
-        if (length(fallback) > 0) {
-          append_log(sprintf(
-            "Not in column_synonyms.csv, imported as-is: %s",
-            paste(fallback, collapse = ", ")
-          ))
-        }
-        if (length(dropped) > 0) {
-          append_log(sprintf(
-            "Excluded (non-numeric, e.g. free-text comment fields): %s",
-            paste(dropped, collapse = ", ")
-          ))
-        }
-      }
+    }
+  }
+
+  # Zenodo/IODP records can bundle several files per DOI (e.g.
+  # data_by_hole.zip and data_by_splice.zip on the same record) --
+  # zenodo_fetch_dataset() already expands those into one row per file
+  # found, same shape as pg_fetch_dataset(), so this loop is identical in
+  # structure to fetch_and_harmonize() above, just pointed at Zenodo's
+  # own depth-column convention (CSF-A depth scale, not PANGAEA's
+  # "Depth sed") and its own synonym table.
+  fetch_and_harmonize_zenodo <- function(doi, core_id) {
+    append_log(sprintf("Fetching Zenodo record %s for %s...", doi, core_id))
+    fetched <- tryCatch(zenodo_fetch_dataset(doi), error = function(e) {
+      append_log(paste("ERROR fetching from Zenodo:", conditionMessage(e)))
+      NULL
+    })
+    if (is.null(fetched) || nrow(fetched) == 0) {
+      append_log(sprintf("No tabular data file found in Zenodo record %s.", doi))
+      return(invisible())
+    }
+    for (i in seq_len(nrow(fetched))) {
+      harmonize_and_store(
+        fetched$data[[i]], core_id, fetched$doi[i],
+        depth_col = "Top depth CSF-A (m)", synonym_map = load_zenodo_synonym_map(),
+        synonym_csv_name = "zenodo_column_synonyms.csv"
+      )
     }
   }
 
@@ -358,6 +435,72 @@ server <- function(input, output, session) {
     }
     for (doi in rv$search_results$doi[sel]) {
       fetch_and_harmonize(doi, input$active_core)
+    }
+  })
+
+  # Zenodo IODP records are per-expedition (e.g. "IODP Expedition 362
+  # Elemental analysis (CHNS)"), not per-core like PANGAEA datasets, so a
+  # core_id text search wouldn't match anything meaningful -- auto-fill
+  # the expedition number when the active core's ID looks like an IODP
+  # hole (e.g. "362-U1480A"), matching classify_core_source()'s own
+  # IODP-ID convention, so the common case needs no manual typing.
+  observeEvent(input$active_core, {
+    req(input$active_core)
+    exp_match <- stringr::str_match(input$active_core, "^([0-9]{2,3})-U[0-9]{4}[A-Z]?$")
+    if (!is.na(exp_match[1, 2])) {
+      updateTextInput(session, "zenodo_expedition", value = exp_match[1, 2])
+    }
+  })
+
+  observeEvent(input$zenodo_search_btn, {
+    req(input$active_core)
+    expedition <- trimws(input$zenodo_expedition %||% "")
+    if (!nzchar(expedition)) expedition <- NULL
+    query <- trimws(input$zenodo_query %||% "")
+    if (!nzchar(query)) query <- NULL
+    if (is.null(expedition) && is.null(query)) {
+      append_log(paste(
+        "Enter an IODP expedition number and/or search terms to search",
+        "Zenodo (expedition is auto-filled when the active core's ID",
+        "looks like an IODP hole, e.g. \"362-U1480A\")."
+      ))
+      return(invisible())
+    }
+    append_log(sprintf(
+      "Searching Zenodo (expedition: %s; terms: %s)...",
+      expedition %||% "any", query %||% "none"
+    ))
+    res <- tryCatch(
+      zenodo_search_iodp(query = query, expedition = expedition, count = 20),
+      error = function(e) {
+        append_log(paste("ERROR:", conditionMessage(e)))
+        NULL
+      }
+    )
+    if (!is.null(res)) {
+      rv$zenodo_search_results <- res
+      append_log(sprintf("Found %d candidate Zenodo record(s).", nrow(res)))
+    }
+  })
+
+  output$zenodo_search_results <- DT::renderDataTable({
+    display <- rv$zenodo_search_results[, c("doi", "title", "n_files", "description")]
+    display$doi <- doi_link(display$doi, base_url = "https://doi.org/")
+    DT::datatable(
+      display,
+      selection = "multiple", options = list(pageLength = 5, scrollX = TRUE),
+      escape = -2
+    )
+  })
+
+  observeEvent(input$zenodo_fetch_selected_btn, {
+    sel <- input$zenodo_search_results_rows_selected
+    if (length(sel) == 0) {
+      append_log("No rows selected in the Zenodo search results table -- click a row to select it, then try again.")
+      return(invisible())
+    }
+    for (doi in rv$zenodo_search_results$doi[sel]) {
+      fetch_and_harmonize_zenodo(doi, input$active_core)
     }
   })
 
