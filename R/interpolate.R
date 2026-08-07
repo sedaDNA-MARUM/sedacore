@@ -24,7 +24,7 @@ find_neighbours_by_depth <- function(x, targets, tolerance_cm) {
   purrr::pmap_dfr(
     list(core_id = targets$core_id, target_depth_cm = targets$depth_cm),
     function(core_id, target_depth_cm) {
-      candidates <- x[x$core_id == core_id, ]
+      candidates <- x[x$core_id == core_id & !is.na(x$value), ]
       if (nrow(candidates) == 0) {
         return(tibble::tibble())
       }
@@ -44,7 +44,22 @@ find_neighbours_by_depth <- function(x, targets, tolerance_cm) {
 }
 
 #' @noRd
-interpolate_one_group <- function(g, target_depths, method, gap_multiplier) {
+interpolate_one_group <- function(g, target_depths, method, gap_multiplier, snap_tolerance_cm) {
+  # A row can carry a real depth_cm but an NA value -- e.g. PANGAEA tables
+  # that share one composite/spliced depth column across many parameter
+  # columns at fine resolution, where this particular parameter's own cell
+  # is blank at that depth (measured only every few cm, not at every row
+  # of the shared scale). Such a row is not a real measurement of this
+  # group's parameter and must be dropped before any match/bracket logic,
+  # or it gets picked up as a false "exact match" with value = NA -- which
+  # both fabricates a bogus measured row and (worse) blocks the real
+  # interpolation/snap to the actual nearby measurements from ever being
+  # attempted, since the target depth looks "already resolved".
+  g <- g[!is.na(g$value), ]
+  if (nrow(g) == 0) {
+    return(tibble::tibble())
+  }
+
   exact_rows <- g[g$depth_cm %in% target_depths, ]
   # An exact match isn't bracketed by two different real depths -- it *is*
   # one, so both bounds collapse to the same value. Together with
@@ -58,8 +73,36 @@ interpolate_one_group <- function(g, target_depths, method, gap_multiplier) {
   }
 
   remaining_targets <- setdiff(target_depths, g$depth_cm)
+
+  # Sample depths and a core's own measured depths are rarely recorded to
+  # identical precision (e.g. a sample logged at 246 cm vs. the nearest
+  # real measurement at 245.5 cm) -- snap to the closest real value within
+  # snap_tolerance_cm and use it as-is (not interpolated) rather than
+  # requiring exact equality or interpolating across a bracket needlessly.
+  # Tried before interpolation: a very close real value is more reliable
+  # than a linear estimate, and this also rescues target depths near the
+  # edge of the measured range where interpolation can't reach.
+  snapped_rows <- tibble::tibble()
+  if (length(remaining_targets) > 0 && snap_tolerance_cm > 0) {
+    snapped_rows <- purrr::map_dfr(remaining_targets, function(td) {
+      gaps <- abs(g$depth_cm - td)
+      best <- which.min(gaps)
+      if (gaps[best] > snap_tolerance_cm) {
+        return(tibble::tibble())
+      }
+      row <- g[best, ]
+      row$bracket_depth_min_cm <- row$depth_cm
+      row$bracket_depth_max_cm <- row$depth_cm
+      row$depth_cm <- td
+      row
+    })
+    if (nrow(snapped_rows) > 0) {
+      remaining_targets <- setdiff(remaining_targets, snapped_rows$depth_cm)
+    }
+  }
+
   if (length(remaining_targets) == 0 || nrow(g) < 2) {
-    return(exact_rows)
+    return(dplyr::bind_rows(exact_rows, snapped_rows))
   }
 
   ord <- order(g$depth_cm)
@@ -96,7 +139,7 @@ interpolate_one_group <- function(g, target_depths, method, gap_multiplier) {
     )
   })
 
-  dplyr::bind_rows(exact_rows, interpolated_rows)
+  dplyr::bind_rows(exact_rows, snapped_rows, interpolated_rows)
 }
 
 #' Interpolate `param_long` values at target depths
@@ -108,16 +151,24 @@ interpolate_one_group <- function(g, target_depths, method, gap_multiplier) {
 #' an additional, purpose-built table for depth-matching against sample
 #' depths. For each `(core_id, parameter_group, parameter_name, species)`
 #' group: a target depth that was already directly measured is returned
-#' as-is (`is_interpolated = FALSE`); otherwise a value is estimated
-#' between the two bracketing measurements, subject to a **per-core
-#' gap-size guard** -- only filled if those two measurements are within
-#' `gap_multiplier` times that group's own median sample spacing of each
-#' other (not a single hardcoded cm threshold, unlike the +/-1/2/3 cm
-#' ladder in the original `cdata_filtering()`) -- this avoids interpolating
-#' across a genuine data desert in sparsely-sampled cores. Never
-#' extrapolates beyond the measured depth range; a target depth outside
-#' that range, or with too large a bracketing gap, is simply absent from
-#' the result.
+#' as-is (`is_interpolated = FALSE`); otherwise, if a real measurement
+#' exists within `snap_tolerance_cm` of the target depth, that nearby
+#' value is used as-is instead (also `is_interpolated = FALSE` -- sample
+#' depths and a core's own measured depths are rarely recorded to
+#' identical precision, so requiring exact equality would miss real,
+#' usably-close data); otherwise a value is estimated between the two
+#' bracketing measurements, subject to a **per-core gap-size guard** --
+#' only filled if those two measurements are within `gap_multiplier`
+#' times that group's own median sample spacing of each other (not a
+#' single hardcoded cm threshold, unlike the +/-1/2/3 cm ladder in the
+#' original `cdata_filtering()`) -- this avoids interpolating across a
+#' genuine data desert in sparsely-sampled cores. Never extrapolates
+#' beyond the measured depth range; a target depth outside that range, or
+#' with too large a bracketing gap, is simply absent from the result.
+#' Rows whose `value` is `NA` (e.g. a depth shared with another parameter
+#' on a composite/spliced depth scale, where this parameter itself wasn't
+#' measured there) are never treated as real measurements -- excluded
+#' from exact/snap matching and interpolation alike.
 #'
 #' Every interpolated row is stamped `is_interpolated = TRUE` with
 #' `interp_gap_cm` recording the bracketing gap, so downstream analyses
@@ -144,15 +195,19 @@ interpolate_one_group <- function(g, target_depths, method, gap_multiplier) {
 #'   isotope ratios.
 #' @param gap_multiplier Multiple of a group's own median sample spacing
 #'   allowed between the two measurements bracketing a target depth.
+#' @param snap_tolerance_cm Maximum distance (cm) from a target depth to a
+#'   real measurement for that measurement to be used as-is rather than
+#'   requiring an exact depth match or falling through to interpolation.
 #' @return A `param_long` tibble with one row per `(target depth,
 #'   parameter_group, parameter_name, species)` that could be resolved --
-#'   an exact measurement or an interpolated estimate -- plus
+#'   an exact/snapped measurement or an interpolated estimate -- plus
 #'   `bracket_depth_min_cm`/`bracket_depth_max_cm` (see Details). This is
 #'   a new, separate table; it is not merged into `x`.
 #' @export
 interpolate_depth_series <- function(x, targets,
                                       method = c("linear", "spline"),
-                                      gap_multiplier = 10) {
+                                      gap_multiplier = 10,
+                                      snap_tolerance_cm = 4) {
   validate_param_long(x)
   method <- match.arg(method)
 
@@ -173,7 +228,7 @@ interpolate_depth_series <- function(x, targets,
     if (is.null(td)) {
       return(tibble::tibble())
     }
-    interpolate_one_group(g, td, method, gap_multiplier)
+    interpolate_one_group(g, td, method, gap_multiplier, snap_tolerance_cm)
   })
 
   if (nrow(out) == 0) {
@@ -219,26 +274,30 @@ cross_depths_params <- function(sample_depths, params) {
 #'   neighbouring cores); `sample_depths` is matched against all of it.
 #' @param sample_depths Numeric vector of depths to report coverage for
 #'   (e.g. one core's own sample depths).
-#' @param method,gap_multiplier Passed to [interpolate_depth_series()].
+#' @param method,gap_multiplier,snap_tolerance_cm Passed to
+#'   [interpolate_depth_series()].
 #' @return A `param_long` tibble, one row per `(sample depth,
 #'   parameter_group, parameter_name, species)` combination present in
 #'   `x`, plus:
-#'   - `match_status`: `"measured"`, `"interpolated"`, `"no data in that
-#'     depth range"` (this parameter's own retrieved depths don't overlap
-#'     the sample-depth range at all), or `"gap too large to interpolate"`
+#'   - `match_status`: `"measured"` (an exact or within-tolerance match --
+#'     see `snap_tolerance_cm`), `"interpolated"`, `"no data in that depth
+#'     range"` (this parameter's own retrieved depths don't overlap the
+#'     sample-depth range at all), or `"gap too large to interpolate"`
 #'     (they do overlap, but no bracketing pair was close enough).
 #'   - `measured_depth_min`/`measured_depth_max`: this parameter's own
-#'     retrieved depth range in `x`, for building diagnostic messages.
+#'     retrieved depth range in `x` (real, non-`NA` values only), for
+#'     building diagnostic messages.
 #'   - `bracket_depth_min_cm`/`bracket_depth_max_cm`: the real source
 #'     depth(s) (in `core_id`, which may be a neighbour core, not the one
 #'     `sample_depths` belongs to) this row's value was actually matched
-#'     from -- see [interpolate_depth_series()] for the exact-vs-
-#'     interpolated distinction. `NA` on unresolved rows.
+#'     from -- see [interpolate_depth_series()] for the exact-vs-snapped-
+#'     vs-interpolated distinction. `NA` on unresolved rows.
 #'   `core_id`/`pangaea_doi`/`value`/etc. are `NA` on unresolved rows.
 #' @export
 report_depth_coverage <- function(x, sample_depths,
                                    method = c("linear", "spline"),
-                                   gap_multiplier = 10) {
+                                   gap_multiplier = 10,
+                                   snap_tolerance_cm = 4) {
   validate_param_long(x)
   method <- match.arg(method)
 
@@ -248,7 +307,12 @@ report_depth_coverage <- function(x, sample_depths,
   }
   sample_range <- range(sample_depths)
 
-  measured <- x[!x$is_interpolated, ]
+  # NA-valued rows (a depth shared with another parameter on a
+  # composite/spliced depth scale, where this parameter itself wasn't
+  # measured there) aren't real measurements -- excluded here too, so the
+  # reported depth range and the parameter list both reflect actual
+  # coverage, not the shared scale's full extent.
+  measured <- x[!x$is_interpolated & !is.na(x$value), ]
   if (nrow(measured) == 0) {
     rlang::abort("`x` has no measured (non-interpolated) rows to report coverage for.")
   }
@@ -269,7 +333,10 @@ report_depth_coverage <- function(x, sample_depths,
     core_id = rep(core_ids, each = length(sample_depths)),
     depth_cm = rep(sample_depths, times = length(core_ids))
   )
-  matched <- interpolate_depth_series(x, targets, method = method, gap_multiplier = gap_multiplier)
+  matched <- interpolate_depth_series(
+    x, targets,
+    method = method, gap_multiplier = gap_multiplier, snap_tolerance_cm = snap_tolerance_cm
+  )
 
   full_grid <- cross_depths_params(sample_depths, params)
 

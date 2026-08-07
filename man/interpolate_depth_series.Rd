@@ -8,7 +8,8 @@ interpolate_depth_series(
   x,
   targets,
   method = c("linear", "spline"),
-  gap_multiplier = 10
+  gap_multiplier = 10,
+  snap_tolerance_cm = 4
 )
 }
 \arguments{
@@ -26,10 +27,14 @@ isotope ratios.}
 
 \item{gap_multiplier}{Multiple of a group's own median sample spacing
 allowed between the two measurements bracketing a target depth.}
+
+\item{snap_tolerance_cm}{Maximum distance (cm) from a target depth to a
+real measurement for that measurement to be used as-is rather than
+requiring an exact depth match or falling through to interpolation.}
 }
 \value{
 A \code{param_long} tibble with one row per \verb{(target depth, parameter_group, parameter_name, species)} that could be resolved --
-an exact measurement or an interpolated estimate -- plus
+an exact/snapped measurement or an interpolated estimate -- plus
 \code{bracket_depth_min_cm}/\code{bracket_depth_max_cm} (see Details). This is
 a new, separate table; it is not merged into \code{x}.
 }
@@ -41,16 +46,24 @@ stays intact and nothing already retrieved is ever lost; this is purely
 an additional, purpose-built table for depth-matching against sample
 depths. For each \verb{(core_id, parameter_group, parameter_name, species)}
 group: a target depth that was already directly measured is returned
-as-is (\code{is_interpolated = FALSE}); otherwise a value is estimated
-between the two bracketing measurements, subject to a \strong{per-core
-gap-size guard} -- only filled if those two measurements are within
-\code{gap_multiplier} times that group's own median sample spacing of each
-other (not a single hardcoded cm threshold, unlike the +/-1/2/3 cm
-ladder in the original \code{cdata_filtering()}) -- this avoids interpolating
-across a genuine data desert in sparsely-sampled cores. Never
-extrapolates beyond the measured depth range; a target depth outside
-that range, or with too large a bracketing gap, is simply absent from
-the result.
+as-is (\code{is_interpolated = FALSE}); otherwise, if a real measurement
+exists within \code{snap_tolerance_cm} of the target depth, that nearby
+value is used as-is instead (also \code{is_interpolated = FALSE} -- sample
+depths and a core's own measured depths are rarely recorded to
+identical precision, so requiring exact equality would miss real,
+usably-close data); otherwise a value is estimated between the two
+bracketing measurements, subject to a \strong{per-core gap-size guard} --
+only filled if those two measurements are within \code{gap_multiplier}
+times that group's own median sample spacing of each other (not a
+single hardcoded cm threshold, unlike the +/-1/2/3 cm ladder in the
+original \code{cdata_filtering()}) -- this avoids interpolating across a
+genuine data desert in sparsely-sampled cores. Never extrapolates
+beyond the measured depth range; a target depth outside that range, or
+with too large a bracketing gap, is simply absent from the result.
+Rows whose \code{value} is \code{NA} (e.g. a depth shared with another parameter
+on a composite/spliced depth scale, where this parameter itself wasn't
+measured there) are never treated as real measurements -- excluded
+from exact/snap matching and interpolation alike.
 }
 \details{
 Every interpolated row is stamped \code{is_interpolated = TRUE} with

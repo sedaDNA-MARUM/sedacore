@@ -81,7 +81,9 @@ test_that("interpolate_depth_series rounds interpolated values to clear floating
   x <- make_series(depths = c(146, 160), values = c(16.6, 16.9), parameter_name = "SST")
   targets <- tibble::tibble(core_id = "core1", depth_cm = 150)
 
-  out <- interpolate_depth_series(x, targets, gap_multiplier = 10)
+  # snap_tolerance_cm = 0: this test is about interpolation rounding
+  # specifically, not the (closer, 4 cm-away) snap-to-nearest behavior.
+  out <- interpolate_depth_series(x, targets, gap_multiplier = 10, snap_tolerance_cm = 0)
   raw_approx <- stats::approx(c(146, 160), c(16.6, 16.9), xout = 150)$y
   expect_true(raw_approx != round(raw_approx, 6)) # confirms the raw arithmetic does produce noise
   expect_equal(out$value, round(raw_approx, 6))
@@ -173,6 +175,64 @@ test_that("report_depth_coverage keeps parameters separate when only one has cov
   expect_equal(out$match_status[out$parameter_name == "TOC"], "no data in that depth range")
 })
 
+test_that("interpolate_depth_series ignores NA-valued rows for exact matching", {
+  # Regression test: a real PANGAEA dataset (MD95-2024, TOC) shares one
+  # composite depth column across many parameters at fine resolution, but
+  # TOC itself was only measured every ~5 cm -- so a target depth (246)
+  # can land exactly on a row where *another* parameter was measured but
+  # TOC's own cell is blank (NA). That row must not count as an exact
+  # match, or it (a) fabricates a bogus "measured" row with value = NA and
+  # (b) blocks the real bracket (245.5 -> 250.5) from ever being tried.
+  x <- make_series(
+    depths = c(240, 245.5, 246, 250.5, 260),
+    values = c(0.36, 0.31, NA, 0.30, 0.29),
+    parameter_name = "TOC", species = NA_character_
+  )
+  targets <- tibble::tibble(core_id = "core1", depth_cm = 246)
+
+  out <- interpolate_depth_series(x, targets, gap_multiplier = 10, snap_tolerance_cm = 0)
+
+  expect_equal(nrow(out), 1)
+  expect_true(out$is_interpolated)
+  expect_equal(out$bracket_depth_min_cm, 245.5)
+  expect_equal(out$bracket_depth_max_cm, 250.5)
+  expect_equal(out$value, round(stats::approx(c(245.5, 250.5), c(0.31, 0.30), xout = 246)$y, 6))
+})
+
+test_that("interpolate_depth_series snaps to a close real measurement within snap_tolerance_cm", {
+  x <- make_series(depths = c(240, 245.5, 250.5, 260), values = c(0.36, 0.31, 0.30, 0.29), parameter_name = "TOC")
+  targets <- tibble::tibble(core_id = "core1", depth_cm = 246)
+
+  out <- interpolate_depth_series(x, targets, gap_multiplier = 10, snap_tolerance_cm = 4)
+
+  expect_equal(nrow(out), 1)
+  expect_false(out$is_interpolated)
+  expect_equal(out$value, 0.31)
+  expect_equal(out$bracket_depth_min_cm, 245.5)
+  expect_equal(out$bracket_depth_max_cm, 245.5)
+})
+
+test_that("interpolate_depth_series does not snap beyond snap_tolerance_cm", {
+  x <- make_series(depths = c(240, 245.5, 250.5, 260), values = c(0.36, 0.31, 0.30, 0.29), parameter_name = "TOC")
+  targets <- tibble::tibble(core_id = "core1", depth_cm = 246)
+
+  out <- interpolate_depth_series(x, targets, gap_multiplier = 10, snap_tolerance_cm = 0.4)
+
+  expect_equal(nrow(out), 1)
+  expect_true(out$is_interpolated)
+  expect_equal(out$bracket_depth_min_cm, 245.5)
+  expect_equal(out$bracket_depth_max_cm, 250.5)
+})
+
+test_that("report_depth_coverage marks a snapped-within-tolerance depth as measured", {
+  x <- make_series(depths = c(240, 245.5, 250.5, 260), values = c(0.36, 0.31, 0.30, 0.29), parameter_name = "TOC")
+  out <- report_depth_coverage(x, sample_depths = 246, snap_tolerance_cm = 4)
+
+  expect_equal(out$match_status, "measured")
+  expect_false(out$is_interpolated)
+  expect_equal(out$value, 0.31)
+})
+
 test_that("find_neighbours_by_depth snaps to the nearest measurement within tolerance", {
   x <- make_series(depths = c(0, 10, 20), values = c(0, 1, 2))
   targets <- tibble::tibble(core_id = "core1", depth_cm = c(9, 50))
@@ -183,4 +243,18 @@ test_that("find_neighbours_by_depth snaps to the nearest measurement within tole
   expect_equal(out$depth_cm, 10)
   expect_equal(out$sample_depth_cm, 9)
   expect_equal(out$gap_cm, 1)
+})
+
+test_that("find_neighbours_by_depth ignores NA-valued rows", {
+  # Same composite-depth-scale issue as interpolate_depth_series(): a row
+  # closer to the target but with value = NA must not be snapped to over
+  # a real (non-NA) value that's further away.
+  x <- make_series(depths = c(0, 9, 10, 20), values = c(0, NA, 1, 2))
+  targets <- tibble::tibble(core_id = "core1", depth_cm = 9)
+
+  out <- find_neighbours_by_depth(x, targets, tolerance_cm = 3)
+
+  expect_equal(nrow(out), 1)
+  expect_equal(out$depth_cm, 10)
+  expect_equal(out$value, 1)
 })

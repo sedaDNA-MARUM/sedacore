@@ -8,7 +8,8 @@ report_depth_coverage(
   x,
   sample_depths,
   method = c("linear", "spline"),
-  gap_multiplier = 10
+  gap_multiplier = 10,
+  snap_tolerance_cm = 4
 )
 }
 \arguments{
@@ -19,22 +20,25 @@ neighbouring cores); \code{sample_depths} is matched against all of it.}
 \item{sample_depths}{Numeric vector of depths to report coverage for
 (e.g. one core's own sample depths).}
 
-\item{method, gap_multiplier}{Passed to \code{\link[=interpolate_depth_series]{interpolate_depth_series()}}.}
+\item{method, gap_multiplier, snap_tolerance_cm}{Passed to
+\code{\link[=interpolate_depth_series]{interpolate_depth_series()}}.}
 }
 \value{
 A \code{param_long} tibble, one row per \verb{(sample depth, parameter_group, parameter_name, species)} combination present in
 \code{x}, plus:
 \itemize{
-\item \code{match_status}: \code{"measured"}, \code{"interpolated"}, \code{"no data in that depth range"} (this parameter's own retrieved depths don't overlap
-the sample-depth range at all), or \code{"gap too large to interpolate"}
+\item \code{match_status}: \code{"measured"} (an exact or within-tolerance match --
+see \code{snap_tolerance_cm}), \code{"interpolated"}, \code{"no data in that depth range"} (this parameter's own retrieved depths don't overlap the
+sample-depth range at all), or \code{"gap too large to interpolate"}
 (they do overlap, but no bracketing pair was close enough).
 \item \code{measured_depth_min}/\code{measured_depth_max}: this parameter's own
-retrieved depth range in \code{x}, for building diagnostic messages.
+retrieved depth range in \code{x} (real, non-\code{NA} values only), for
+building diagnostic messages.
 \item \code{bracket_depth_min_cm}/\code{bracket_depth_max_cm}: the real source
 depth(s) (in \code{core_id}, which may be a neighbour core, not the one
 \code{sample_depths} belongs to) this row's value was actually matched
-from -- see \code{\link[=interpolate_depth_series]{interpolate_depth_series()}} for the exact-vs-
-interpolated distinction. \code{NA} on unresolved rows.
+from -- see \code{\link[=interpolate_depth_series]{interpolate_depth_series()}} for the exact-vs-snapped-
+vs-interpolated distinction. \code{NA} on unresolved rows.
 \code{core_id}/\code{pangaea_doi}/\code{value}/etc. are \code{NA} on unresolved rows.
 }
 }
