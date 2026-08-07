@@ -29,19 +29,3 @@ test_that("search_iodp_campaigns results feed straight into pg_fetch_dataset/har
   expect_true(all(grepl("^361-U", d$event_label)))
   expect_equal(classify_core_source(d$event_label[1]), "IODP")
 })
-
-test_that("iodp_manual_import reads the shipped template into param_long", {
-  template <- system.file("extdata", "iodp_manual_template.csv", package = "sedacore")
-  out <- iodp_manual_import(template, core_id = "U1478A")
-
-  expect_true(is_param_long(out))
-  expect_equal(nrow(out), 2)
-  expect_true(all(out$core_id == "U1478A"))
-  expect_setequal(out$parameter_name, c("d18O", "d13C"))
-})
-
-test_that("iodp_manual_import errors on a malformed CSV", {
-  bad <- tempfile(fileext = ".csv")
-  readr::write_csv(tibble::tibble(depth_cm = 1, value = 2), bad)
-  expect_error(iodp_manual_import(bad, core_id = "U1478A"))
-})

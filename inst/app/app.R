@@ -154,6 +154,20 @@ ui <- fluidPage(
       DT::dataTableOutput("zenodo_search_results"),
       actionButton("zenodo_fetch_selected_btn", "Fetch + harmonize selected", class = "btn-primary"),
       tags$hr(),
+      tags$h4("Import external data"),
+      helpText(
+        "For data not reachable through PANGAEA or Zenodo (e.g. a paper's",
+        "supplementary table, another database, a manual LORE export) --",
+        "reshape it into the template below and import it here; it flows",
+        "through the same harmonized/depth-matched/checklist/export",
+        "pipeline as everything else, with no special-casing."
+      ),
+      downloadButton("external_import_template_btn", "Download template CSV"),
+      fileInput("external_import_file", "External data CSV", accept = ".csv"),
+      textInput("external_import_source", "Source (optional)", placeholder = "e.g. Smith et al. 2020, Table 2"),
+      textInput("external_import_doi", "DOI (optional)", placeholder = "e.g. 10.1594/PANGAEA.xxxxx"),
+      actionButton("external_import_btn", "Import for active core", class = "btn-primary"),
+      tags$hr(),
       tags$h4("Neighbouring cores"),
       numericInput("radius_km", "Radius (km)", value = 50, min = 1, max = 2000),
       numericInput("neighbour_count", "Max candidates to check", value = 50, min = 5, max = 300, step = 10),
@@ -501,6 +515,61 @@ server <- function(input, output, session) {
     }
     for (doi in rv$zenodo_search_results$doi[sel]) {
       fetch_and_harmonize_zenodo(doi, input$active_core)
+    }
+  })
+
+  output$external_import_template_btn <- downloadHandler(
+    filename = function() "external_import_template.csv",
+    content = function(file) {
+      file.copy(
+        system.file("extdata", "external_import_template.csv", package = "sedacore"),
+        file
+      )
+    }
+  )
+
+  observeEvent(input$external_import_btn, {
+    req(input$active_core)
+    if (is.null(input$external_import_file)) {
+      append_log("Choose a CSV file (matching the template) to import first.")
+      return(invisible())
+    }
+    source_label <- trimws(input$external_import_source %||% "")
+    if (!nzchar(source_label)) source_label <- NA_character_
+    doi_label <- trimws(input$external_import_doi %||% "")
+    if (!nzchar(doi_label)) doi_label <- NA_character_
+
+    h <- tryCatch(
+      import_external_data(
+        input$external_import_file$datapath, core_id = input$active_core,
+        source = source_label, doi = doi_label
+      ),
+      error = function(e) {
+        append_log(paste("ERROR importing:", conditionMessage(e)))
+        NULL
+      }
+    )
+    if (is.null(h) || nrow(h) == 0) {
+      return(invisible())
+    }
+
+    # Same optional measurement filter as harmonize_and_store() applies
+    # to PANGAEA/Zenodo fetches, for consistency.
+    n_before_filter <- nrow(h)
+    if (length(input$measurement_filter) > 0) {
+      h <- h[h$parameter_name %in% input$measurement_filter, ]
+    }
+    if (nrow(h) > 0) {
+      rv$param_long <- dplyr::bind_rows(rv$param_long, h)
+      append_log(sprintf(
+        "Imported %d rows for %s from %s.",
+        nrow(h), input$active_core, input$external_import_file$name
+      ))
+    } else {
+      append_log(sprintf(
+        "0 rows from %s after restricting to selected measurements (%d rows available before filtering).",
+        input$external_import_file$name, n_before_filter
+      ))
     }
   })
 
