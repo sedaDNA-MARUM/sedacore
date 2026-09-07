@@ -231,7 +231,7 @@ ui <- fluidPage(
           DT::dataTableOutput("target_checklist_table")
         ),
         tabPanel("Harmonized data", DT::dataTableOutput("param_table")),
-        tabPanel("Depth-matched data", DT::dataTableOutput("depth_matched_table")),
+        tabPanel("Depth/age-matched data", DT::dataTableOutput("depth_matched_table")),
         tabPanel("Log", verbatimTextOutput("log"))
       )
     )
@@ -837,8 +837,17 @@ server <- function(input, output, session) {
     )
   })
 
+  # Same rationale as output$param_table above: age_model doesn't appear
+  # as its own parameter row here either -- it's the age_ka column every
+  # other row already carries (matched_age_ka, renamed for display), so a
+  # separate "age_model" row would just be a redundant, less useful
+  # version of the same information.
   output$depth_matched_table <- DT::renderDataTable({
-    dt <- DT::datatable(rv$depth_matched_long, options = list(pageLength = 15, scrollX = TRUE))
+    display <- rv$depth_matched_long[rv$depth_matched_long$parameter_name != "age_model", ]
+    display <- dplyr::rename(display, age_ka = "matched_age_ka")
+    display <- dplyr::relocate(display, "age_ka", .after = "depth_cm")
+
+    dt <- DT::datatable(display, options = list(pageLength = 15, scrollX = TRUE))
     DT::formatStyle(dt, "match_status",
       backgroundColor = DT::styleEqual(
         c(

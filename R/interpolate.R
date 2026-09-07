@@ -259,7 +259,7 @@ cross_depths_params <- function(sample_depths, params) {
 }
 
 #' @noRd
-refusal_rows <- function(core_id, params, sample_depths, reason, has_xrf_data) {
+refusal_rows <- function(core_id, params, sample_depths, reason, has_xrf_data, target_ages = NULL) {
   grid <- cross_depths_params(sample_depths, params)
   grid$core_id <- core_id
   grid$pangaea_doi <- NA_character_
@@ -270,7 +270,18 @@ refusal_rows <- function(core_id, params, sample_depths, reason, has_xrf_data) {
   grid$retrieved_at <- as.POSIXct(NA)
   grid$bracket_depth_min_cm <- NA_real_
   grid$bracket_depth_max_cm <- NA_real_
-  grid$matched_age_ka <- NA_real_
+  # The target's own age is still known (from sample_registry) even when
+  # the match itself was refused for some other reason (e.g. the
+  # neighbour has no age model of its own) -- shown here for context,
+  # distinct from bracket_age_min_ka/max_ka which describe a resolved
+  # match's basis and stay NA on any refused row. target_ages, when
+  # given, is aligned with sample_depths (not grid's expanded rows), so
+  # look each row's value up by its own depth_cm.
+  grid$matched_age_ka <- if (is.null(target_ages)) {
+    NA_real_
+  } else {
+    target_ages[match(grid$depth_cm, sample_depths)]
+  }
   grid$bracket_age_min_ka <- NA_real_
   grid$bracket_age_max_ka <- NA_real_
   grid$match_status <- reason
@@ -329,7 +340,7 @@ match_neighbour_by_age <- function(x_neighbour, sample_depths, target_ages,
   if (nrow(age_model) == 0) {
     return(refusal_rows(
       neighbour_id, own_params, sample_depths,
-      "no age model for cross-core match", has_xrf_data
+      "no age model for cross-core match", has_xrf_data, target_ages
     ))
   }
 
@@ -342,7 +353,7 @@ match_neighbour_by_age <- function(x_neighbour, sample_depths, target_ages,
     # -- same practical outcome as having no age model at all.
     return(refusal_rows(
       neighbour_id, own_params, sample_depths,
-      "no age model for cross-core match", has_xrf_data
+      "no age model for cross-core match", has_xrf_data, target_ages
     ))
   }
 
@@ -496,6 +507,12 @@ report_depth_coverage <- function(x, sample_depths,
     ) |>
     dplyr::mutate(in_range = .data$measured_depth_min <= sample_range[2] & .data$measured_depth_max >= sample_range[1])
 
+  target_ages <- rep(NA_real_, length(sample_depths))
+  if (!is.null(sample_registry)) {
+    sr <- sample_registry[sample_registry$core_id == target_core_id, ]
+    target_ages <- sr$age_ka[match(sample_depths, sr$depth_cm)]
+  }
+
   own <- x[x$core_id == target_core_id, ]
   own_targets <- tibble::tibble(core_id = target_core_id, depth_cm = sample_depths)
   own_matched <- interpolate_depth_series(
@@ -505,19 +522,20 @@ report_depth_coverage <- function(x, sample_depths,
   # Assigned unconditionally (even when own_matched has 0 rows) so these
   # columns always exist for the final dplyr::select() below, regardless
   # of whether there's any neighbour data to supply them instead (e.g. no
-  # neighbour_core_ids at all -- the common single-core case).
+  # neighbour_core_ids at all -- the common single-core case). matched_age_ka
+  # here is simply the target's own known age at that sample depth (from
+  # sample_registry) -- same-core rows don't need any age *interpolation*,
+  # since sample_registry$age_ka is already given per exact sample depth.
   own_matched$match_status <- NA_character_
   own_matched$match_basis <- "same_core"
-  own_matched$matched_age_ka <- NA_real_
+  if (nrow(own_matched) > 0) {
+    own_matched$matched_age_ka <- target_ages[match(own_matched$depth_cm, sample_depths)]
+  } else {
+    own_matched$matched_age_ka <- NA_real_
+  }
   own_matched$bracket_age_min_ka <- NA_real_
   own_matched$bracket_age_max_ka <- NA_real_
   own_matched$has_xrf_data <- NA
-
-  target_ages <- rep(NA_real_, length(sample_depths))
-  if (!is.null(sample_registry)) {
-    sr <- sample_registry[sample_registry$core_id == target_core_id, ]
-    target_ages <- sr$age_ka[match(sample_depths, sr$depth_cm)]
-  }
 
   neighbour_core_ids <- setdiff(core_ids, target_core_id)
   neighbour_matched <- purrr::map_dfr(neighbour_core_ids, function(nb_id) {
@@ -550,7 +568,12 @@ report_depth_coverage <- function(x, sample_depths,
   out$is_interpolated[is.na(out$is_interpolated)] <- FALSE
   # match_basis stays NA for a cell no path (same-core or any neighbour)
   # ever actually attempted/resolved -- distinct from a genuine
-  # "same_core" or "age" success, or an explicit "refused" attempt.
+  # "same_core" or "age" success, or an explicit "refused" attempt. The
+  # target's own age at that sample depth is known regardless (from
+  # sample_registry), so backfill it here too -- age context shouldn't
+  # depend on whether this particular parameter happened to resolve.
+  still_missing <- is.na(out$matched_age_ka)
+  out$matched_age_ka[still_missing] <- target_ages[match(out$depth_cm[still_missing], sample_depths)]
 
   out <- dplyr::select(
     out,
