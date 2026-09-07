@@ -713,10 +713,16 @@ server <- function(input, output, session) {
       return(invisible())
     }
 
-    report <- tryCatch(report_depth_coverage(current, sample_depths), error = function(e) {
-      append_log(paste("ERROR interpolating:", conditionMessage(e)))
-      NULL
-    })
+    report <- tryCatch(
+      report_depth_coverage(
+        current, sample_depths,
+        target_core_id = input$active_core, sample_registry = rv$sample_registry
+      ),
+      error = function(e) {
+        append_log(paste("ERROR interpolating:", conditionMessage(e)))
+        NULL
+      }
+    )
     if (is.null(report)) {
       return(invisible())
     }
@@ -731,9 +737,11 @@ server <- function(input, output, session) {
     n_interp <- sum(report$match_status == "interpolated")
     n_no_data <- sum(report$match_status == "no data in that depth range")
     n_gap <- sum(report$match_status == "gap too large to interpolate")
+    n_age <- sum(report$match_basis == "age", na.rm = TRUE)
+    n_refused <- sum(report$match_basis == "refused", na.rm = TRUE)
     borrowed_ids <- unique(report$core_id[!is.na(report$core_id) & report$core_id != input$active_core])
-    source_note <- if (length(borrowed_ids) > 0) {
-      sprintf(" (some borrowed from neighbour core(s): %s)", paste(borrowed_ids, collapse = ", "))
+    source_note <- if (n_age > 0) {
+      sprintf(" (%d borrowed from neighbour core(s) by age: %s)", n_age, paste(borrowed_ids, collapse = ", "))
     } else {
       ""
     }
@@ -756,6 +764,36 @@ server <- function(input, output, session) {
         min(sample_depths, na.rm = TRUE), max(sample_depths, na.rm = TRUE), paste(details, collapse = "; ")
       ))
     }
+
+    # Cross-core integration is refused outright (never silently
+    # depth-matched) when a neighbour has no age model, or the target has
+    # no age_ka on file for a sample depth -- surface exactly why, once
+    # per neighbour, rather than leaving it to a generic "gap too large"
+    # count that wouldn't say what's actually missing.
+    if (n_refused > 0) {
+      refused <- report[report$match_basis == "refused", ]
+      no_age_model <- unique(refused$core_id[refused$match_status == "no age model for cross-core match"])
+      no_age_model <- no_age_model[!is.na(no_age_model)]
+      for (nb in no_age_model) {
+        has_xrf <- any(refused$has_xrf_data[refused$core_id == nb], na.rm = TRUE)
+        xrf_note <- if (has_xrf) {
+          " XRF data is available for this core if you want to build a depth-time correlation manually."
+        } else {
+          ""
+        }
+        append_log(sprintf(
+          "Skipped %s: no age model available for cross-core matching.%s",
+          nb, xrf_note
+        ))
+      }
+      if (any(refused$match_status == "target core has no age_ka for this sample depth")) {
+        append_log(sprintf(
+          "Skipped cross-core matching for %d sample depth(s): no age_ka on file for %s in sample_registry.",
+          length(unique(refused$depth_cm[refused$match_status == "target core has no age_ka for this sample depth"])),
+          input$active_core
+        ))
+      }
+    }
   })
 
   output$param_table <- DT::renderDataTable({
@@ -769,8 +807,11 @@ server <- function(input, output, session) {
     dt <- DT::datatable(rv$depth_matched_long, options = list(pageLength = 15, scrollX = TRUE))
     DT::formatStyle(dt, "match_status",
       backgroundColor = DT::styleEqual(
-        c("measured", "interpolated", "no data in that depth range", "gap too large to interpolate"),
-        c("white", "#fff3cd", "#f8d7da", "#f8d7da")
+        c(
+          "measured", "interpolated", "no data in that depth range", "gap too large to interpolate",
+          "no age model for cross-core match", "target core has no age_ka for this sample depth"
+        ),
+        c("white", "#fff3cd", "#f8d7da", "#f8d7da", "#f8d7da", "#f8d7da")
       )
     )
   })

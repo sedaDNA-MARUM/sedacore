@@ -9,7 +9,9 @@ report_depth_coverage(
   sample_depths,
   method = c("linear", "spline"),
   gap_multiplier = 10,
-  snap_tolerance_cm = 4
+  snap_tolerance_cm = 4,
+  target_core_id = NULL,
+  sample_registry = NULL
 )
 }
 \arguments{
@@ -21,24 +23,43 @@ neighbouring cores); \code{sample_depths} is matched against all of it.}
 (e.g. one core's own sample depths).}
 
 \item{method, gap_multiplier, snap_tolerance_cm}{Passed to
-\code{\link[=interpolate_depth_series]{interpolate_depth_series()}}.}
+\code{\link[=interpolate_depth_series]{interpolate_depth_series()}}/\code{match_neighbour_by_age()}.}
+
+\item{target_core_id}{Which \code{core_id} in \code{x} is the target (its own
+data is depth-matched; every other \code{core_id} is treated as a
+neighbour and age-matched instead). Required when \code{x} spans more than
+one \code{core_id}; inferred automatically when it doesn't.}
+
+\item{sample_registry}{Optional data frame with \code{core_id}, \code{depth_cm},
+\code{age_ka} columns (e.g. the app's own \code{sample_registry}), used to look
+up the target's own age at each of \code{sample_depths}. Only needed when
+\code{x} includes neighbour data; without it, all cross-core rows are
+refused for lack of a target age.}
 }
 \value{
 A \code{param_long} tibble, one row per \verb{(sample depth, parameter_group, parameter_name, species)} combination present in
 \code{x}, plus:
 \itemize{
-\item \code{match_status}: \code{"measured"} (an exact or within-tolerance match --
-see \code{snap_tolerance_cm}), \code{"interpolated"}, \code{"no data in that depth range"} (this parameter's own retrieved depths don't overlap the
-sample-depth range at all), or \code{"gap too large to interpolate"}
-(they do overlap, but no bracketing pair was close enough).
+\item \code{match_status}: \code{"measured"}, \code{"interpolated"}, \code{"no data in that depth range"}, \code{"gap too large to interpolate"} (all as before, for
+the target's own depth-matched data), or -- for neighbour rows --
+\code{"no age model for cross-core match"} / \code{"target core has no age_ka for this sample depth"} when cross-core integration was
+refused.
+\item \code{match_basis}: \code{"same_core"}, \code{"age"}, or \code{"refused"}.
 \item \code{measured_depth_min}/\code{measured_depth_max}: this parameter's own
 retrieved depth range in \code{x} (real, non-\code{NA} values only), for
 building diagnostic messages.
 \item \code{bracket_depth_min_cm}/\code{bracket_depth_max_cm}: the real source
-depth(s) (in \code{core_id}, which may be a neighbour core, not the one
-\code{sample_depths} belongs to) this row's value was actually matched
-from -- see \code{\link[=interpolate_depth_series]{interpolate_depth_series()}} for the exact-vs-snapped-
-vs-interpolated distinction. \code{NA} on unresolved rows.
+depth(s) this row's value was actually matched from (in \code{core_id},
+which may be a neighbour). For an age-matched row these are
+recovered from the neighbour's own age model, not assumed equal to
+\code{depth_cm}. \code{NA} on unresolved/refused rows.
+\item \code{matched_age_ka}/\code{bracket_age_min_ka}/\code{bracket_age_max_ka}: the age
+basis an age-matched row was actually resolved on. \code{NA} for
+same-core or refused rows.
+\item \code{has_xrf_data}: for a refused neighbour row, whether that neighbour
+has any \code{parameter_group == "xrf"} data in \code{x} -- not usable for
+automated integration, but a hint that it could support a manual
+depth-time correlation instead. \code{NA} otherwise.
 \code{core_id}/\code{pangaea_doi}/\code{value}/etc. are \code{NA} on unresolved rows.
 }
 }
@@ -51,4 +72,15 @@ combination that exists anywhere in \code{x} gets a row, even when nothing
 was found there, flagged via a \code{match_status} column instead of being
 silently dropped -- e.g. samples at 40-200 cm against data retrieved
 at 300-1000 cm should say so, not just return nothing.
+}
+\details{
+The target core's own data (\code{core_id == target_core_id}) is matched
+purely by depth, same as always -- that's never been the problem. Any
+\emph{other} \code{core_id} present in \code{x} (a neighbour) is matched by \strong{age}
+instead (see \code{match_neighbour_by_age()}): two cores essentially never
+share a sedimentation rate, so matching neighbour data by raw depth
+value is not valid. A neighbour with no age model of its own, or a
+target sample depth with no \code{age_ka} in \code{sample_registry}, is refused
+outright (never silently depth-matched) with an explanatory
+\code{match_status}.
 }

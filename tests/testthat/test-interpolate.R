@@ -143,24 +143,134 @@ test_that("report_depth_coverage flags a sample depth within range but across to
   expect_true(is.na(out$value))
 })
 
-test_that("report_depth_coverage matches data borrowed from a different core_id (neighbour)", {
-  # e.g. GeoB18549-1 has no PANGAEA data of its own; its neighbour
-  # GeoB1706-2's harmonized data is passed in instead, matched against
-  # GeoB18549-1's own sample depths.
-  x <- make_series(depths = c(0, 10, 20), values = c(0, 1, 2), core_id = "GeoB1706-2")
-  out <- report_depth_coverage(x, sample_depths = c(0, 5))
+test_that("report_depth_coverage borrows neighbour data by age, not by raw depth", {
+  # GeoB18549-1-like scenario: the target has no PANGAEA data of its own
+  # (not even present in x); its neighbour GeoB1706-2 has both TOC data
+  # and its own age model, on a deliberately different depth scale (0-20
+  # cm spanning 0-20 ka) than the target's own sample depths (100-150 cm)
+  # -- proving depth values are no longer compared directly across cores.
+  # TOC measured only at depths 0/20 (deliberately NOT at 10, whose own
+  # age -- via the age model below -- would otherwise coincide exactly
+  # with the target age used below, masking the interpolation case).
+  neighbour <- dplyr::bind_rows(
+    make_series(
+      depths = c(0, 20), values = c(0, 2),
+      core_id = "GeoB1706-2", parameter_name = "TOC", species = NA_character_
+    ),
+    make_series(
+      depths = c(0, 20), values = c(0, 20),
+      core_id = "GeoB1706-2", parameter_name = "age_model", species = NA_character_
+    )
+  )
+  sample_registry <- tibble::tibble(core_id = "target1", depth_cm = c(100, 150), age_ka = c(0, 10))
 
-  expect_equal(nrow(out), 2)
-  expect_equal(out$core_id[out$depth_cm == 0], "GeoB1706-2")
+  out <- report_depth_coverage(
+    neighbour, sample_depths = c(100, 150),
+    target_core_id = "target1", sample_registry = sample_registry
+  )
+  toc <- out[out$parameter_name == "TOC", ]
+  toc <- toc[order(toc$depth_cm), ]
+
+  expect_equal(toc$core_id, c("GeoB1706-2", "GeoB1706-2"))
+  expect_equal(toc$match_basis, c("age", "age"))
+  # target's 100 cm sample is at age 0 ka -> exact match to the
+  # neighbour's own depth 0 cm (age 0 ka, TOC = 0).
+  expect_equal(toc$match_status[1], "measured")
+  expect_equal(toc$value[1], 0)
+  expect_equal(toc$matched_age_ka[1], 0)
+  expect_equal(toc$bracket_depth_min_cm[1], 0)
+  expect_equal(toc$bracket_depth_max_cm[1], 0)
+  # target's 150 cm sample is at age 10 ka -> halfway (in age) between the
+  # neighbour's depth 0 (age 0, TOC 0) and depth 20 (age 20, TOC 2).
+  expect_equal(toc$match_status[2], "interpolated")
+  expect_equal(toc$value[2], 1)
+  expect_equal(toc$matched_age_ka[2], 10)
+  expect_equal(toc$bracket_age_min_ka[2], 0)
+  expect_equal(toc$bracket_age_max_ka[2], 20)
+  expect_equal(toc$bracket_depth_min_cm[2], 0)
+  expect_equal(toc$bracket_depth_max_cm[2], 20)
+})
+
+test_that("report_depth_coverage refuses a neighbour with no age model, hinting at XRF data if present", {
+  neighbour_no_xrf <- make_series(
+    depths = c(0, 10, 20), values = c(0, 1, 2),
+    core_id = "GeoB1706-2", parameter_name = "TOC", species = NA_character_
+  )
+  sample_registry <- tibble::tibble(core_id = "target1", depth_cm = 100, age_ka = 5)
+
+  out <- report_depth_coverage(
+    neighbour_no_xrf, sample_depths = 100,
+    target_core_id = "target1", sample_registry = sample_registry
+  )
+  expect_equal(out$match_status, "no age model for cross-core match")
+  expect_equal(out$match_basis, "refused")
+  expect_true(is.na(out$value))
+  expect_false(out$has_xrf_data)
+
+  neighbour_with_xrf <- dplyr::bind_rows(
+    neighbour_no_xrf,
+    make_series(
+      depths = c(0, 10, 20), values = c(100, 200, 300),
+      core_id = "GeoB1706-2", parameter_name = "Ca_xrf", species = NA_character_
+    ) |> dplyr::mutate(parameter_group = "xrf")
+  )
+  out2 <- report_depth_coverage(
+    neighbour_with_xrf, sample_depths = 100,
+    target_core_id = "target1", sample_registry = sample_registry
+  )
+  expect_true(all(out2$match_status[out2$match_basis == "refused"] == "no age model for cross-core match"))
+  expect_true(all(out2$has_xrf_data[out2$match_basis == "refused"]))
+})
+
+test_that("report_depth_coverage refuses cross-core matching when the target has no age_ka for a sample depth", {
+  neighbour <- dplyr::bind_rows(
+    make_series(
+      depths = c(0, 10, 20), values = c(0, 1, 2),
+      core_id = "GeoB1706-2", parameter_name = "TOC", species = NA_character_
+    ),
+    make_series(
+      depths = c(0, 20), values = c(0, 20),
+      core_id = "GeoB1706-2", parameter_name = "age_model", species = NA_character_
+    )
+  )
+  # age_ka only on file for one of the two sample depths.
+  sample_registry <- tibble::tibble(core_id = "target1", depth_cm = 100, age_ka = 0)
+
+  out <- report_depth_coverage(
+    neighbour, sample_depths = c(100, 150),
+    target_core_id = "target1", sample_registry = sample_registry
+  )
+  toc <- out[out$parameter_name == "TOC", ]
+
+  expect_equal(toc$match_basis[toc$depth_cm == 100], "age")
+  expect_equal(toc$match_status[toc$depth_cm == 150], "target core has no age_ka for this sample depth")
+  expect_equal(toc$match_basis[toc$depth_cm == 150], "refused")
+  expect_true(is.na(toc$value[toc$depth_cm == 150]))
+})
+
+test_that("report_depth_coverage refuses all cross-core rows when sample_registry isn't given at all", {
+  neighbour <- dplyr::bind_rows(
+    make_series(
+      depths = c(0, 10, 20), values = c(0, 1, 2),
+      core_id = "GeoB1706-2", parameter_name = "TOC", species = NA_character_
+    ),
+    make_series(
+      depths = c(0, 20), values = c(0, 20),
+      core_id = "GeoB1706-2", parameter_name = "age_model", species = NA_character_
+    )
+  )
+  out <- report_depth_coverage(neighbour, sample_depths = 100, target_core_id = "target1")
+  expect_true(all(out$match_status == "target core has no age_ka for this sample depth"))
+  expect_true(all(out$match_basis == "refused"))
+})
+
+test_that("report_depth_coverage's own-core (target) rows stay purely depth-matched, unaffected by age logic", {
+  x <- make_series(depths = c(0, 10, 20), values = c(0, 1, 2), core_id = "target1")
+  out <- report_depth_coverage(x, sample_depths = c(0, 5, 10), target_core_id = "target1")
+
+  expect_true(all(out$match_basis == "same_core"))
   expect_equal(out$match_status[out$depth_cm == 0], "measured")
   expect_equal(out$match_status[out$depth_cm == 5], "interpolated")
-  # The real depths this came from are the neighbour's own (0 and 10,
-  # both in core_id "GeoB1706-2"), distinct from depth_cm (the target
-  # core's own sample depths, 0 and 5).
-  expect_equal(out$bracket_depth_min_cm[out$depth_cm == 0], 0)
-  expect_equal(out$bracket_depth_max_cm[out$depth_cm == 0], 0)
-  expect_equal(out$bracket_depth_min_cm[out$depth_cm == 5], 0)
-  expect_equal(out$bracket_depth_max_cm[out$depth_cm == 5], 10)
 })
 
 test_that("report_depth_coverage keeps parameters separate when only one has coverage", {

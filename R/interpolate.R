@@ -258,6 +258,132 @@ cross_depths_params <- function(sample_depths, params) {
   )
 }
 
+#' @noRd
+refusal_rows <- function(core_id, params, sample_depths, reason, has_xrf_data) {
+  grid <- cross_depths_params(sample_depths, params)
+  grid$core_id <- core_id
+  grid$pangaea_doi <- NA_character_
+  grid$value <- NA_real_
+  grid$raw_column_name <- NA_character_
+  grid$is_interpolated <- FALSE
+  grid$interp_gap_cm <- NA_real_
+  grid$retrieved_at <- as.POSIXct(NA)
+  grid$bracket_depth_min_cm <- NA_real_
+  grid$bracket_depth_max_cm <- NA_real_
+  grid$matched_age_ka <- NA_real_
+  grid$bracket_age_min_ka <- NA_real_
+  grid$bracket_age_max_ka <- NA_real_
+  grid$match_status <- reason
+  grid$match_basis <- "refused"
+  grid$has_xrf_data <- has_xrf_data
+  grid
+}
+
+#' Match one neighbour core's data to the target's sample depths by age
+#'
+#' Two cores essentially never share the same sedimentation rate, so
+#' matching "246 cm in core A" to "246 cm in core B" (what
+#' [interpolate_depth_series()] does for a single core) is not a valid way
+#' to borrow data *between* cores. This instead requires an age-depth
+#' model on *both* sides: the neighbour's own depths are converted to ages
+#' via its own age model ([core_age_model()]/[depth_to_age()]), then
+#' matched against the target's own sample ages (`target_ages`, from
+#' `sample_registry$age_ka` -- already per-sample, no conversion needed on
+#' the target side) using the same bracket/snap/interpolate mechanics as
+#' `interpolate_one_group()` -- reused via [interpolate_depth_series()] by
+#' treating age as the position axis for this call, then mapped back onto
+#' the target's real sample depth for display.
+#'
+#' Never silently falls back to depth-matching: a neighbour with no age
+#' model, or a target sample depth with no `age_ka`, is refused outright
+#' (rows with `value = NA` and an explanatory `match_status`) rather than
+#' guessing from raw depth.
+#'
+#' @param x_neighbour A `param_long` tibble already filtered to one
+#'   neighbour `core_id`.
+#' @param sample_depths The target core's own sample depths.
+#' @param target_ages The target's own age (ka) at each of `sample_depths`,
+#'   same length/order -- `NA` where unavailable.
+#' @param method,gap_multiplier,snap_tolerance_cm Passed through to the
+#'   age-domain matching step.
+#' @return A tibble of result rows for this neighbour only (successes
+#'   tagged `match_basis = "age"`, refusals tagged `match_basis =
+#'   "refused"`) -- zero rows if this neighbour has no measured data at
+#'   all. Depths where matching was attempted but failed on its own
+#'   merits (out of the age-model's range, or too large an age-bracket
+#'   gap) are simply omitted, same contract as
+#'   [interpolate_depth_series()], to be filled in by the caller's own
+#'   generic coverage logic.
+#' @noRd
+match_neighbour_by_age <- function(x_neighbour, sample_depths, target_ages,
+                                    method, gap_multiplier, snap_tolerance_cm) {
+  measured <- x_neighbour[!x_neighbour$is_interpolated & !is.na(x_neighbour$value), ]
+  if (nrow(measured) == 0) {
+    return(tibble::tibble())
+  }
+  neighbour_id <- measured$core_id[1]
+  own_params <- unique(measured[, c("parameter_group", "parameter_name", "species", "unit")])
+  has_xrf_data <- any(measured$parameter_group == "xrf")
+
+  age_model <- core_age_model(x_neighbour, neighbour_id)
+  if (nrow(age_model) == 0) {
+    return(refusal_rows(
+      neighbour_id, own_params, sample_depths,
+      "no age model for cross-core match", has_xrf_data
+    ))
+  }
+
+  measured$source_depth_cm <- measured$depth_cm
+  measured$depth_cm <- depth_to_age(age_model, measured$source_depth_cm, gap_multiplier, snap_tolerance_cm)
+  measured <- measured[!is.na(measured$depth_cm), ]
+  if (nrow(measured) == 0) {
+    # The age model exists but none of this neighbour's own depths could
+    # actually be converted (e.g. all outside the age model's own range)
+    # -- same practical outcome as having no age model at all.
+    return(refusal_rows(
+      neighbour_id, own_params, sample_depths,
+      "no age model for cross-core match", has_xrf_data
+    ))
+  }
+
+  has_age <- !is.na(target_ages)
+  out <- tibble::tibble()
+
+  if (any(has_age)) {
+    ages_present <- target_ages[has_age]
+    depths_present <- sample_depths[has_age]
+    pseudo_targets <- tibble::tibble(core_id = neighbour_id, depth_cm = ages_present)
+    matched <- interpolate_depth_series(
+      measured, pseudo_targets,
+      method = method, gap_multiplier = gap_multiplier, snap_tolerance_cm = snap_tolerance_cm
+    )
+    if (nrow(matched) > 0) {
+      # matched$depth_cm currently holds the matched *age* (we substituted
+      # age for depth going in) -- recover the real bracketing depth(s)
+      # this came from before relabelling columns for the caller.
+      matched$matched_age_ka <- matched$depth_cm
+      matched$bracket_age_min_ka <- matched$bracket_depth_min_cm
+      matched$bracket_age_max_ka <- matched$bracket_depth_max_cm
+      matched$bracket_depth_min_cm <- measured$source_depth_cm[match(matched$bracket_age_min_ka, measured$depth_cm)]
+      matched$bracket_depth_max_cm <- measured$source_depth_cm[match(matched$bracket_age_max_ka, measured$depth_cm)]
+      matched$depth_cm <- depths_present[match(matched$matched_age_ka, ages_present)]
+      matched$match_status <- ifelse(matched$is_interpolated, "interpolated", "measured")
+      matched$match_basis <- "age"
+      matched$has_xrf_data <- has_xrf_data
+      out <- matched
+    }
+  }
+
+  if (any(!has_age)) {
+    out <- dplyr::bind_rows(out, refusal_rows(
+      neighbour_id, own_params, sample_depths[!has_age],
+      "target core has no age_ka for this sample depth", has_xrf_data
+    ))
+  }
+
+  out
+}
+
 #' Report depth-match coverage for every sample depth, including gaps
 #'
 #' [interpolate_depth_series()] only ever returns rows it could actually
@@ -269,35 +395,65 @@ cross_depths_params <- function(sample_depths, params) {
 #' silently dropped -- e.g. samples at 40-200 cm against data retrieved
 #' at 300-1000 cm should say so, not just return nothing.
 #'
+#' The target core's own data (`core_id == target_core_id`) is matched
+#' purely by depth, same as always -- that's never been the problem. Any
+#' *other* `core_id` present in `x` (a neighbour) is matched by **age**
+#' instead (see `match_neighbour_by_age()`): two cores essentially never
+#' share a sedimentation rate, so matching neighbour data by raw depth
+#' value is not valid. A neighbour with no age model of its own, or a
+#' target sample depth with no `age_ka` in `sample_registry`, is refused
+#' outright (never silently depth-matched) with an explanatory
+#' `match_status`.
+#'
 #' @param x A `param_long` tibble of measured values -- may span more than
 #'   one `core_id` (e.g. a core's own data plus data borrowed from
 #'   neighbouring cores); `sample_depths` is matched against all of it.
 #' @param sample_depths Numeric vector of depths to report coverage for
 #'   (e.g. one core's own sample depths).
 #' @param method,gap_multiplier,snap_tolerance_cm Passed to
-#'   [interpolate_depth_series()].
+#'   [interpolate_depth_series()]/`match_neighbour_by_age()`.
+#' @param target_core_id Which `core_id` in `x` is the target (its own
+#'   data is depth-matched; every other `core_id` is treated as a
+#'   neighbour and age-matched instead). Required when `x` spans more than
+#'   one `core_id`; inferred automatically when it doesn't.
+#' @param sample_registry Optional data frame with `core_id`, `depth_cm`,
+#'   `age_ka` columns (e.g. the app's own `sample_registry`), used to look
+#'   up the target's own age at each of `sample_depths`. Only needed when
+#'   `x` includes neighbour data; without it, all cross-core rows are
+#'   refused for lack of a target age.
 #' @return A `param_long` tibble, one row per `(sample depth,
 #'   parameter_group, parameter_name, species)` combination present in
 #'   `x`, plus:
-#'   - `match_status`: `"measured"` (an exact or within-tolerance match --
-#'     see `snap_tolerance_cm`), `"interpolated"`, `"no data in that depth
-#'     range"` (this parameter's own retrieved depths don't overlap the
-#'     sample-depth range at all), or `"gap too large to interpolate"`
-#'     (they do overlap, but no bracketing pair was close enough).
+#'   - `match_status`: `"measured"`, `"interpolated"`, `"no data in that
+#'     depth range"`, `"gap too large to interpolate"` (all as before, for
+#'     the target's own depth-matched data), or -- for neighbour rows --
+#'     `"no age model for cross-core match"` / `"target core has no
+#'     age_ka for this sample depth"` when cross-core integration was
+#'     refused.
+#'   - `match_basis`: `"same_core"`, `"age"`, or `"refused"`.
 #'   - `measured_depth_min`/`measured_depth_max`: this parameter's own
 #'     retrieved depth range in `x` (real, non-`NA` values only), for
 #'     building diagnostic messages.
 #'   - `bracket_depth_min_cm`/`bracket_depth_max_cm`: the real source
-#'     depth(s) (in `core_id`, which may be a neighbour core, not the one
-#'     `sample_depths` belongs to) this row's value was actually matched
-#'     from -- see [interpolate_depth_series()] for the exact-vs-snapped-
-#'     vs-interpolated distinction. `NA` on unresolved rows.
+#'     depth(s) this row's value was actually matched from (in `core_id`,
+#'     which may be a neighbour). For an age-matched row these are
+#'     recovered from the neighbour's own age model, not assumed equal to
+#'     `depth_cm`. `NA` on unresolved/refused rows.
+#'   - `matched_age_ka`/`bracket_age_min_ka`/`bracket_age_max_ka`: the age
+#'     basis an age-matched row was actually resolved on. `NA` for
+#'     same-core or refused rows.
+#'   - `has_xrf_data`: for a refused neighbour row, whether that neighbour
+#'     has any `parameter_group == "xrf"` data in `x` -- not usable for
+#'     automated integration, but a hint that it could support a manual
+#'     depth-time correlation instead. `NA` otherwise.
 #'   `core_id`/`pangaea_doi`/`value`/etc. are `NA` on unresolved rows.
 #' @export
 report_depth_coverage <- function(x, sample_depths,
                                    method = c("linear", "spline"),
                                    gap_multiplier = 10,
-                                   snap_tolerance_cm = 4) {
+                                   snap_tolerance_cm = 4,
+                                   target_core_id = NULL,
+                                   sample_registry = NULL) {
   validate_param_long(x)
   method <- match.arg(method)
 
@@ -317,6 +473,18 @@ report_depth_coverage <- function(x, sample_depths,
     rlang::abort("`x` has no measured (non-interpolated) rows to report coverage for.")
   }
 
+  core_ids <- unique(x$core_id)
+  if (is.null(target_core_id)) {
+    if (length(core_ids) > 1) {
+      rlang::abort(paste(
+        "`target_core_id` must be given when `x` spans more than one core_id",
+        "(needed to tell the target core's own data apart from a",
+        "neighbour's, for age-based cross-core matching)."
+      ))
+    }
+    target_core_id <- core_ids[1]
+  }
+
   params <- unique(measured[, c("parameter_group", "parameter_name", "species", "unit")])
 
   coverage <- measured |>
@@ -328,15 +496,38 @@ report_depth_coverage <- function(x, sample_depths,
     ) |>
     dplyr::mutate(in_range = .data$measured_depth_min <= sample_range[2] & .data$measured_depth_max >= sample_range[1])
 
-  core_ids <- unique(x$core_id)
-  targets <- tibble::tibble(
-    core_id = rep(core_ids, each = length(sample_depths)),
-    depth_cm = rep(sample_depths, times = length(core_ids))
-  )
-  matched <- interpolate_depth_series(
-    x, targets,
+  own <- x[x$core_id == target_core_id, ]
+  own_targets <- tibble::tibble(core_id = target_core_id, depth_cm = sample_depths)
+  own_matched <- interpolate_depth_series(
+    own, own_targets,
     method = method, gap_multiplier = gap_multiplier, snap_tolerance_cm = snap_tolerance_cm
   )
+  # Assigned unconditionally (even when own_matched has 0 rows) so these
+  # columns always exist for the final dplyr::select() below, regardless
+  # of whether there's any neighbour data to supply them instead (e.g. no
+  # neighbour_core_ids at all -- the common single-core case).
+  own_matched$match_status <- NA_character_
+  own_matched$match_basis <- "same_core"
+  own_matched$matched_age_ka <- NA_real_
+  own_matched$bracket_age_min_ka <- NA_real_
+  own_matched$bracket_age_max_ka <- NA_real_
+  own_matched$has_xrf_data <- NA
+
+  target_ages <- rep(NA_real_, length(sample_depths))
+  if (!is.null(sample_registry)) {
+    sr <- sample_registry[sample_registry$core_id == target_core_id, ]
+    target_ages <- sr$age_ka[match(sample_depths, sr$depth_cm)]
+  }
+
+  neighbour_core_ids <- setdiff(core_ids, target_core_id)
+  neighbour_matched <- purrr::map_dfr(neighbour_core_ids, function(nb_id) {
+    match_neighbour_by_age(
+      x[x$core_id == nb_id, ], sample_depths, target_ages,
+      method, gap_multiplier, snap_tolerance_cm
+    )
+  })
+
+  matched <- dplyr::bind_rows(own_matched, neighbour_matched)
 
   full_grid <- cross_depths_params(sample_depths, params)
 
@@ -350,20 +541,25 @@ report_depth_coverage <- function(x, sample_depths,
   )
 
   out$match_status <- dplyr::case_when(
+    !is.na(out$match_status) ~ out$match_status,
     !is.na(out$value) & !out$is_interpolated ~ "measured",
     !is.na(out$value) & out$is_interpolated ~ "interpolated",
     !out$in_range ~ "no data in that depth range",
     TRUE ~ "gap too large to interpolate"
   )
   out$is_interpolated[is.na(out$is_interpolated)] <- FALSE
+  # match_basis stays NA for a cell no path (same-core or any neighbour)
+  # ever actually attempted/resolved -- distinct from a genuine
+  # "same_core" or "age" success, or an explicit "refused" attempt.
 
   out <- dplyr::select(
     out,
     "core_id", "pangaea_doi", "depth_cm", "parameter_group", "parameter_name",
     "species", "value", "unit", "raw_column_name", "is_interpolated",
-    "interp_gap_cm", "retrieved_at", "match_status",
+    "interp_gap_cm", "retrieved_at", "match_status", "match_basis",
     "bracket_depth_min_cm", "bracket_depth_max_cm",
-    "measured_depth_min", "measured_depth_max"
+    "matched_age_ka", "bracket_age_min_ka", "bracket_age_max_ka",
+    "has_xrf_data", "measured_depth_min", "measured_depth_max"
   )
 
   new_param_long(out)
