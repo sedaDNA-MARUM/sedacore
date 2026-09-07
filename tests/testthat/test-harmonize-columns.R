@@ -149,6 +149,25 @@ test_that("harmonize_columns matches age-model columns; numeric-looking fallback
   expect_equal(attr(h, "dropped_columns"), "Comm")
 })
 
+test_that("harmonize_columns matches a Bacon-style 'Age [ka BP] (Median Age)' header", {
+  # Reported by a user: an age-depth model dataset reporting the median
+  # age point-estimate and quantile uncertainty bounds as separate
+  # columns -- the plain 'Age [ka BP]' synonym doesn't match this exact
+  # header, so age_model silently disappeared from the harmonized table.
+  age <- tibble::tibble(
+    `Depth sed [m]` = c(0.1, 0.2),
+    `Age [ka BP] (Median Age)` = c(12.5, 25.1),
+    `C. wuellerstorfi δ18O [‰ PDB] (Quantile (Q0.025))` = c(2.1, 2.3),
+    `C. wuellerstorfi δ18O [‰ PDB] (Quantile (Q0.975))` = c(2.5, 2.7),
+    `C. wuellerstorfi δ18O [‰ PDB]` = c(2.3, 2.5)
+  )
+  h <- suppressWarnings(harmonize_columns(age, core_id = "core1", unmatched = "silent"))
+  expect_true("age_model" %in% h$parameter_name)
+  expect_equal(h$value[h$parameter_name == "age_model"], c(12.5, 25.1))
+  expect_equal(h$parameter_group[h$parameter_name == "age_model"], c("age", "age"))
+  expect_true("d18O" %in% h$parameter_name)
+})
+
 test_that("apply_dataset_override is a no-op when no override is registered", {
   out <- apply_dataset_override("10.1594/PANGAEA.doesnotexist", raw)
   expect_identical(out, raw)

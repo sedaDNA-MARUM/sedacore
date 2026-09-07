@@ -19,6 +19,7 @@ raw_pattern,match_type,parameter_group,parameter_name,unit_raw,species_capture_g
 "SST (1-12) [°C]",exact,biomarkers,SST,°C,,"annual-mean SST derived from UK'37; confirmed live from PANGAEA.54904 -- other datasets may use a differently-worded SST column, append as encountered"
 "Age model [ka]",exact,age,age_model,ka,,confirmed live from PANGAEA.734358
 "Age [ka BP]",exact,age,age_model,ka,,"confirmed live from PANGAEA.230295 and MD95-2024 (10.1594/PANGAEA.778963) -- same canonical parameter_name as 'Age model [ka]' so both spellings converge; needed for age-based cross-core neighbour matching"
+"Age [ka BP] (Median Age)",exact,age,age_model,ka,,"Bacon-style age-depth model output reporting median + quantile uncertainty as separate columns; the median is the point estimate, same canonical parameter_name as the plain 'Age [ka BP]' header -- reported by a user whose harmonized table was missing age_ka entirely because this specific header wasn't in the table yet"
 "Fe [µmol/l]",exact,porewater_chemistry,Fe,µmol/l,,confirmed live from PANGAEA.104672
 "[PO4]3- [µmol/l]",exact,porewater_chemistry,PO4,µmol/l,,confirmed live from PANGAEA.87950
 "Si(OH)4 [µmol/l]",exact,porewater_chemistry,Si_OH_4,µmol/l,,confirmed live from PANGAEA.52909
