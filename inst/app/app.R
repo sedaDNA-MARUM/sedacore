@@ -23,6 +23,21 @@ empty_depth_matched_long <- function() {
   x
 }
 
+# Restricts h to the selected measurement_filter, same as any other
+# parameter -- except "age_model" rows are always kept regardless of the
+# filter. An age model isn't something you'd opt in/out of like a real
+# measurement; it's context needed (a) to show an age_ka column alongside
+# whatever's selected in the Harmonized data table, and (b) for
+# report_depth_coverage()'s age-based neighbour matching, which silently
+# has nothing to work with if its own core's age_model rows were filtered
+# away upstream of it.
+keep_selected_measurements <- function(h, selected) {
+  if (length(selected) == 0) {
+    return(h)
+  }
+  h[h$parameter_name %in% selected | h$parameter_name == "age_model", ]
+}
+
 # Turns a raw DOI (e.g. "10.1594/PANGAEA.228750") into a clickable link,
 # for DT columns rendered with escape = FALSE for that column. NA-safe
 # (NA stays NA, not "NA" text). base_url defaults to PANGAEA's own
@@ -249,7 +264,12 @@ server <- function(input, output, session) {
   # Seed the measurement-filter choices up front, then grow it with
   # anything new that shows up via harmonize's fallback path (a raw
   # column not yet in either table) so those stay selectable too,
-  # without ever dropping the user's current selection.
+  # without ever dropping the user's current selection. "age_model"
+  # stays a selectable choice here too -- selecting it still means
+  # something (requiring it when searching/filtering neighbours by
+  # available_parameters), even though it's never *excluded* from
+  # storage or the Harmonized data table by this same control (see
+  # keep_selected_measurements() and the age_ka column below).
   updateSelectizeInput(session, "measurement_filter", choices = known_parameter_names())
   observeEvent(rv$param_long, {
     known <- isolate(input$measurement_filter)
@@ -327,9 +347,7 @@ server <- function(input, output, session) {
     # Optional user-set filter (see "Measurement filter" in the sidebar)
     # -- applied *after* harmonize_columns() so nothing is ever lost
     # during parsing itself, only at the point of deciding what to keep.
-    if (length(input$measurement_filter) > 0) {
-      h <- h[h$parameter_name %in% input$measurement_filter, ]
-    }
+    h <- keep_selected_measurements(h, input$measurement_filter)
     if (nrow(h) > 0) {
       rv$param_long <- dplyr::bind_rows(rv$param_long, h)
       append_log(sprintf("Harmonized %d rows from %s.", nrow(h), doi))
@@ -556,9 +574,7 @@ server <- function(input, output, session) {
     # Same optional measurement filter as harmonize_and_store() applies
     # to PANGAEA/Zenodo fetches, for consistency.
     n_before_filter <- nrow(h)
-    if (length(input$measurement_filter) > 0) {
-      h <- h[h$parameter_name %in% input$measurement_filter, ]
-    }
+    h <- keep_selected_measurements(h, input$measurement_filter)
     if (nrow(h) > 0) {
       rv$param_long <- dplyr::bind_rows(rv$param_long, h)
       append_log(sprintf(
@@ -701,10 +717,10 @@ server <- function(input, output, session) {
     current <- rv$param_long[rv$param_long$core_id %in% candidate_core_ids, ]
     # Independent of any filtering already applied at harmonize time --
     # covers data fetched before the filter was set, and lets the filter
-    # be changed freely without re-fetching.
-    if (length(input$measurement_filter) > 0) {
-      current <- current[current$parameter_name %in% input$measurement_filter, ]
-    }
+    # be changed freely without re-fetching. age_model rows are always
+    # kept (see keep_selected_measurements()) -- report_depth_coverage()
+    # needs each core's own age model regardless of what's selected.
+    current <- keep_selected_measurements(current, input$measurement_filter)
     if (nrow(current) == 0) {
       msg <- "No harmonized data yet for the active core"
       if (length(neighbour_ids) > 0) msg <- paste0(msg, " or its fetched neighbours")
@@ -796,8 +812,26 @@ server <- function(input, output, session) {
     }
   })
 
+  # An age model isn't shown as its own measurement row here -- it's
+  # promoted to an age_ka column applied to every other row, so it's
+  # always visible regardless of which parameter_name(s) the user has
+  # selected in measurement_filter (unlike TOC/TN/etc, it's core context,
+  # not a measurement you'd opt in/out of). Uses the same
+  # core_age_model()/depth_to_age() machinery as cross-core neighbour
+  # matching, just applied within each row's own core.
   output$param_table <- DT::renderDataTable({
-    dt <- DT::datatable(rv$param_long, options = list(pageLength = 15, scrollX = TRUE))
+    display <- rv$param_long[rv$param_long$parameter_name != "age_model", ]
+    display$age_ka <- NA_real_
+    for (cid in unique(display$core_id)) {
+      age_model <- core_age_model(rv$param_long, cid)
+      if (nrow(age_model) > 0) {
+        idx <- display$core_id == cid
+        display$age_ka[idx] <- depth_to_age(age_model, display$depth_cm[idx])
+      }
+    }
+    display <- dplyr::relocate(display, "age_ka", .after = "depth_cm")
+
+    dt <- DT::datatable(display, options = list(pageLength = 15, scrollX = TRUE))
     DT::formatStyle(dt, "is_interpolated",
       backgroundColor = DT::styleEqual(c(TRUE, FALSE), c("#fff3cd", "white"))
     )
