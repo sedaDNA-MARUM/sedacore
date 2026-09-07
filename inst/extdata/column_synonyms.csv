@@ -1,6 +1,8 @@
 raw_pattern,match_type,parameter_group,parameter_name,unit_raw,species_capture_group,notes
 "^(.+) δ18O \[‰ PDB\]$",regex,isotopes,d18O,‰ PDB,1,"species-prefixed d18O e.g. 'G. inflata δ18O [‰ PDB]'"
 "^(.+) δ13C \[‰ PDB\]$",regex,isotopes,d13C,‰ PDB,1,"species-prefixed d13C e.g. 'G. sacculifer δ13C [‰ PDB]'"
+"^(.+) δ18O \[‰ PDB\] \(Quantile \(Q0\.025\)\)$",regex,isotopes,d18O_q025,‰ PDB,1,"lower 95% uncertainty bound on a Bacon-style age-model-linked d18O series, distinct from the point-estimate 'd18O' row above; reported by a user e.g. 'C. wuellerstorfi δ18O [‰ PDB] (Quantile (Q0.025))'"
+"^(.+) δ18O \[‰ PDB\] \(Quantile \(Q0\.975\)\)$",regex,isotopes,d18O_q975,‰ PDB,1,"upper 95% uncertainty bound, companion to d18O_q025 above; reported by a user e.g. 'C. wuellerstorfi δ18O [‰ PDB] (Quantile (Q0.975))'"
 "TOC [%]",exact,toc,TOC,%,,from 00a_prep--parse_pangaea_tabs.R toc section
 "CaCO3 [%]",exact,toc,CaCO3,%,,from 00a_prep--parse_pangaea_tabs.R toc section
 "TN [%]",exact,toc,TN,%,,total nitrogen; common companion to TOC/CaCO3 files

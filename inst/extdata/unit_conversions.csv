@@ -1,5 +1,7 @@
 parameter_name,unit_raw,unit_target,multiplier,offset
 d18O,‰ PDB,‰ PDB,1,0
+d18O_q025,‰ PDB,‰ PDB,1,0
+d18O_q975,‰ PDB,‰ PDB,1,0
 d13C,‰ PDB,‰ PDB,1,0
 TOC,%,%,1,0
 CaCO3,%,%,1,0
