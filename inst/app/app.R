@@ -787,7 +787,11 @@ server <- function(input, output, session) {
     # per neighbour, rather than leaving it to a generic "gap too large"
     # count that wouldn't say what's actually missing.
     if (n_refused > 0) {
-      refused <- report[report$match_basis == "refused", ]
+      # match_basis is NA for cells no path ever attempted (see
+      # report_depth_coverage()); a bare `== "refused"` index would pull
+      # all-NA rows in alongside the real ones and make the any()/if
+      # below NA -- which crashed the observer.
+      refused <- report[!is.na(report$match_basis) & report$match_basis == "refused", ]
       no_age_model <- unique(refused$core_id[refused$match_status == "no age model for cross-core match"])
       no_age_model <- no_age_model[!is.na(no_age_model)]
       for (nb in no_age_model) {
@@ -802,7 +806,7 @@ server <- function(input, output, session) {
           nb, xrf_note
         ))
       }
-      if (any(refused$match_status == "target core has no age_ka for this sample depth")) {
+      if (any(refused$match_status == "target core has no age_ka for this sample depth", na.rm = TRUE)) {
         append_log(sprintf(
           "Skipped cross-core matching for %d sample depth(s): no age_ka on file for %s in sample_registry.",
           length(unique(refused$depth_cm[refused$match_status == "target core has no age_ka for this sample depth"])),
