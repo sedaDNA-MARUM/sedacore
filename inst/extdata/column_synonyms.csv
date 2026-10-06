@@ -32,3 +32,18 @@ raw_pattern,match_type,parameter_group,parameter_name,unit_raw,species_capture_g
 "Mn [cps]",exact,xrf,Mn_xrf,cps,,confirmed live from PANGAEA.230295 (XRF core scanning)
 "Fe [cps]",exact,xrf,Fe_xrf,cps,,confirmed live from PANGAEA.230295 (XRF core scanning)
 "Sr [cps]",exact,xrf,Sr_xrf,cps,,confirmed live from PANGAEA.230295 (XRF core scanning)
+"^IRD \[#\]( \(.+\))?$",regex,sea_ice,IRD_count,#,,"ice-rafted debris grain counts; also matches the method-qualified form 'IRD [#] (Counting >150 µm fraction)'; confirmed live from PANGAEA.60825 and PANGAEA.929721"
+"IRD [#/g]",exact,sea_ice,IRD_per_g,#/g,,"IRD grains per gram dry sediment; confirmed live from PANGAEA.877365, PANGAEA.929721 and PANGAEA.996210"
+"IRD [%]",exact,sea_ice,IRD_percent,%,,"IRD as percent of a counted fraction; confirmed live from PANGAEA.143869 and PANGAEA.738550"
+"IRD flux [#/cm**2/ka]",exact,sea_ice,IRD_flux_count,#/cm**2/ka,,confirmed live from PANGAEA.923852
+"Acc rate IRD [#/cm**2/ka]",exact,sea_ice,IRD_flux_count,#/cm**2/ka,,"same quantity as 'IRD flux [#/cm**2/ka]' under PANGAEA's accumulation-rate wording; confirmed live from PANGAEA.929721"
+"Acc rate IRD [g/cm**2/ka]",exact,sea_ice,IRD_flux_mass,g/cm**2/ka,,"mass-based IRD flux, kept distinct from the count-based flux; confirmed live from PANGAEA.738550"
+"IP25/sed [µg/g]",exact,sea_ice,IP25_sed,µg/g,,"sea-ice biomarker IP25 per gram sediment; confirmed live from PANGAEA.905513"
+"IP25/sed [ng/g]",exact,sea_ice,IP25_sed,ng/g,,"same quantity in ng/g (see unit_conversions.csv); confirmed live from PANGAEA.891102"
+"IP25/TOC [µg/g]",exact,sea_ice,IP25_toc,µg/g,,"IP25 normalised to TOC, kept distinct from the per-sediment form; confirmed live from PANGAEA.803235, PANGAEA.887833 and PANGAEA.884792"
+"PBIP25",exact,sea_ice,PBIP25,index,,"IP25/brassicasterol-based sea-ice index; confirmed live from PANGAEA.803235"
+"PDIP25",exact,sea_ice,PDIP25,index,,"IP25/dinosterol-based sea-ice index; confirmed live from PANGAEA.887833"
+"^P\(III\)IP25( \(.+\))?$",regex,sea_ice,P_III_IP25,index,,"HBI-III-based PIP25 index; also matches the parameterised form 'P(III)IP25 (c=0.63)'; confirmed live from PANGAEA.891102 and PANGAEA.971530"
+"^Sea ice conc \[%\] \(.*IP25.*\)$",regex,sea_ice,sea_ice_conc,%,,"sea-ice concentration reconstructed from PIP25 (e.g. '(PI(III)IP25-based)'); deliberately does not match the satellite-based column of the same name, which is modern observation data rather than a downcore proxy; confirmed live from PANGAEA.881637 and PANGAEA.891102"
+"F. curta gr [%]",exact,sea_ice,F_curta_gr,%,,"sea-ice diatom Fragilariopsis curta group relative abundance; confirmed live from PANGAEA.924721 and PANGAEA.782735"
+"F. curta+F. cylindrus [%]",exact,sea_ice,F_curta_cylindrus,%,,"combined F. curta + F. cylindrus relative abundance, kept distinct from F_curta_gr; confirmed live from PANGAEA.762139"

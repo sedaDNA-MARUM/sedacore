@@ -91,3 +91,67 @@ test_that("check_target_measurements ignores an interpolated row in a neighbour 
   out <- check_target_measurements(x, "core1", targets, neighbour_core_ids = "neighbourA")
   expect_equal(out$status, "missing")
 })
+
+test_that("the bundled checklist includes sea-ice proxies, each resolvable by a real synonym", {
+  targets <- load_target_measurements()
+  expect_true(all(c("IRD_count", "IP25_sed", "PBIP25", "sea_ice_conc", "F_curta_gr") %in% targets$parameter_name))
+
+  # Every name the checklist can match must actually be producible by
+  # harmonize_columns(), or the entry would sit at "missing" forever.
+  produced <- unique(load_synonym_map()$parameter_name)
+  expect_true(all(target_measurement_names(targets) %in% produced))
+})
+
+test_that("an also_matches alternative satisfies its checklist entry and reports found_as", {
+  x <- make_row("core1", "IRD_per_g", 10)
+  targets <- tibble::tibble(
+    parameter_name = c("IRD_count", "TOC"), notes = c("n1", "n2"),
+    also_matches = c("IRD_per_g|IRD_percent", NA)
+  )
+
+  out <- check_target_measurements(x, "core1", targets)
+
+  expect_equal(out$status[out$parameter_name == "IRD_count"], "found")
+  expect_equal(out$found_as[out$parameter_name == "IRD_count"], "IRD_per_g")
+  expect_equal(out$n_measured[out$parameter_name == "IRD_count"], 1)
+  expect_equal(out$status[out$parameter_name == "TOC"], "missing")
+  expect_true(is.na(out$found_as[out$parameter_name == "TOC"]))
+})
+
+test_that("several variants of one checklist entry are pooled and all listed in found_as", {
+  x <- dplyr::bind_rows(
+    make_row("core1", "IRD_per_g", 10),
+    make_row("core1", "IRD_percent", 30)
+  )
+  targets <- tibble::tibble(
+    parameter_name = "IRD_count", notes = "n1", also_matches = "IRD_per_g|IRD_percent"
+  )
+
+  out <- check_target_measurements(x, "core1", targets)
+
+  expect_equal(out$n_measured, 2)
+  expect_equal(out$depth_min_cm, 10)
+  expect_equal(out$depth_max_cm, 30)
+  # Order is locale-dependent (sort()), so compare as a set.
+  expect_setequal(strsplit(out$found_as, ", ")[[1]], c("IRD_per_g", "IRD_percent"))
+})
+
+test_that("also_matches also works for the neighbour fallback", {
+  x <- make_row("neighbourA", "IP25_toc", 15)
+  targets <- tibble::tibble(parameter_name = "IP25_sed", notes = "n1", also_matches = "IP25_toc")
+
+  out <- check_target_measurements(x, "core1", targets, neighbour_core_ids = "neighbourA")
+
+  expect_equal(out$status, "found in neighbour")
+  expect_equal(out$found_as, "IP25_toc")
+})
+
+test_that("target_measurement_names lists headline names plus alternatives, without duplicates", {
+  targets <- tibble::tibble(
+    parameter_name = c("IRD_count", "TOC"), notes = c("a", "b"),
+    also_matches = c("IRD_per_g|IRD_percent", NA)
+  )
+  expect_setequal(target_measurement_names(targets), c("IRD_count", "IRD_per_g", "IRD_percent", "TOC"))
+  # A checklist with no also_matches column at all still works.
+  expect_setequal(target_measurement_names(targets[, c("parameter_name", "notes")]), c("IRD_count", "TOC"))
+})

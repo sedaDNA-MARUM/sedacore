@@ -12,7 +12,8 @@ load_target_measurements(
 \item{path}{Path to \code{target_measurements.csv}.}
 }
 \value{
-A tibble: \verb{parameter_name, notes}.
+A tibble: \verb{parameter_name, notes}, plus \code{also_matches} when
+present in the file.
 }
 \description{
 A short, fixed list of parameters of particular interest for sedaDNA
@@ -22,4 +23,13 @@ age_model for chronology/sedimentation rate) -- edit
 list is refined; nothing else needs to change. \code{parameter_name} values
 must match the canonical names produced by \code{\link[=harmonize_columns]{harmonize_columns()}} (see
 \code{inst/extdata/column_synonyms.csv}).
+}
+\details{
+An optional \code{also_matches} column lists further canonical names
+(pipe-separated, e.g. \code{IRD_per_g|IRD_percent}) that count towards the
+same checklist entry. Needed where one proxy is reported in several
+genuinely different quantities (ice-rafted debris as counts, per
+gram, percent or flux) that must stay distinct \code{parameter_name}s so
+they're never interpolated into one another, but that a user checking
+"do I have IRD for this core?" would treat as the same thing.
 }

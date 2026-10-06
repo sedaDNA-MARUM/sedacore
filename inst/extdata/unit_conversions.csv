@@ -28,3 +28,17 @@ TN,wt%,%,1,0
 total_carbon,wt%,%,1,0
 total_hydrogen,wt%,%,1,0
 total_sulfur,wt%,%,1,0
+IRD_count,#,#,1,0
+IRD_per_g,#/g,#/g,1,0
+IRD_percent,%,%,1,0
+IRD_flux_count,#/cm**2/ka,#/cm**2/ka,1,0
+IRD_flux_mass,g/cm**2/ka,g/cm**2/ka,1,0
+IP25_sed,µg/g,µg/g,1,0
+IP25_sed,ng/g,µg/g,0.001,0
+IP25_toc,µg/g,µg/g,1,0
+PBIP25,index,index,1,0
+PDIP25,index,index,1,0
+P_III_IP25,index,index,1,0
+sea_ice_conc,%,%,1,0
+F_curta_gr,%,%,1,0
+F_curta_cylindrus,%,%,1,0

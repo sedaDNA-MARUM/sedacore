@@ -26,8 +26,11 @@ fallback for parameters \code{core_id} has none of its own.}
 }
 \value{
 A tibble: \verb{parameter_name, notes, status} (\code{"found"}, \code{"found in neighbour"}, or \code{"missing"}), \code{n_measured}, \code{depth_min_cm},
-\code{depth_max_cm} (\code{NA} when missing), and \code{source_core_id} (the core(s)
-the reported data actually came from; \code{NA} when missing).
+\code{depth_max_cm} (\code{NA} when missing), \code{source_core_id} (the core(s)
+the reported data actually came from; \code{NA} when missing), and
+\code{found_as} (the actual \code{parameter_name}(s) that satisfied the entry --
+differs from \code{parameter_name} when an \code{also_matches} alternative
+did; \code{NA} when missing).
 }
 \description{
 Cross-references a fixed checklist (see \code{\link[=load_target_measurements]{load_target_measurements()}})

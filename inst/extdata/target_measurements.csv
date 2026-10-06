@@ -1,11 +1,16 @@
-parameter_name,notes
-TOC,Total organic carbon -- productivity/preservation context for aDNA
-TN,Total nitrogen -- paired with TOC for C/N ratio
-CaCO3,Calcium carbonate -- carbonate preservation/dissolution context
-C_N_ratio,Organic matter source (marine vs terrestrial)
-d13C_org,Organic carbon source signature
-age_model,Age-depth model -- also the basis for sedimentation rate
-porosity,Compaction/bioturbation context
-water_content,Compaction/bioturbation context
-bulk_density_wet,Compaction context
-kappa,Magnetic susceptibility -- stratigraphic correlation
+parameter_name,notes,also_matches
+TOC,Total organic carbon -- productivity/preservation context for aDNA,
+TN,Total nitrogen -- paired with TOC for C/N ratio,
+CaCO3,Calcium carbonate -- carbonate preservation/dissolution context,
+C_N_ratio,Organic matter source (marine vs terrestrial),
+d13C_org,Organic carbon source signature,
+age_model,Age-depth model -- also the basis for sedimentation rate,
+porosity,Compaction/bioturbation context,
+water_content,Compaction/bioturbation context,
+bulk_density_wet,Compaction context,
+kappa,Magnetic susceptibility -- stratigraphic correlation,
+IRD_count,"Ice-rafted debris -- iceberg/sea-ice rafting indicator (counts; any IRD variant counts: per gram, percent, or flux)",IRD_per_g|IRD_percent|IRD_flux_count|IRD_flux_mass
+IP25_sed,"IP25 -- sea-ice biomarker (HBI); per-sediment or TOC-normalised both count",IP25_toc
+PBIP25,"PIP25-type sea-ice indices (PBIP25, PDIP25, P(III)IP25) -- semi-quantitative sea-ice cover",PDIP25|P_III_IP25
+sea_ice_conc,Sea-ice concentration reconstructed from PIP25,
+F_curta_gr,"Sea-ice diatoms (Fragilariopsis curta group) -- seasonal sea-ice indicator",F_curta_cylindrus

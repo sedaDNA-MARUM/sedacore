@@ -191,3 +191,54 @@ test_that("apply_dataset_override applies a registered override", {
   out <- apply_dataset_override("10.1594/PANGAEA.test", raw, overrides = overrides)
   expect_true("extra" %in% names(out))
 })
+
+test_that("harmonize_columns recognizes real sea-ice proxy headers (IRD, IP25, PIP25 indices, sea-ice diatoms)", {
+  # Headers copied from real PANGAEA datasets: 929721 (IRD, method-
+  # qualified), 877365 (IRD per g), 923852 (IRD flux), 905513 (IP25),
+  # 887833 (PBIP25/PDIP25), 891102 (P(III)IP25, ng/g), 924721 (diatoms).
+  sea_ice <- tibble::tibble(
+    `Depth sed [m]` = c(1, 2),
+    `IRD [#] (Counting >150 µm fraction)` = c(10, 20),
+    `IRD [#/g]` = c(1.5, 2.5),
+    `IRD flux [#/cm**2/ka]` = c(3, 4),
+    `IP25/sed [µg/g]` = c(0.1, 0.2),
+    `IP25/TOC [µg/g]` = c(0.3, 0.4),
+    `PBIP25` = c(0.5, 0.6),
+    `PDIP25` = c(0.7, 0.8),
+    `P(III)IP25 (c=0.63)` = c(0.2, 0.3),
+    `F. curta gr [%]` = c(5, 6)
+  )
+  h <- suppressWarnings(harmonize_columns(sea_ice, core_id = "core1", unmatched = "silent"))
+
+  expect_setequal(
+    unique(h$parameter_name),
+    c("IRD_count", "IRD_per_g", "IRD_flux_count", "IP25_sed", "IP25_toc",
+      "PBIP25", "PDIP25", "P_III_IP25", "F_curta_gr")
+  )
+  expect_true(all(h$parameter_group == "sea_ice"))
+  expect_length(attr(h, "fallback_columns"), 0)
+})
+
+test_that("sea_ice_conc only matches PIP25-derived concentrations, not the satellite-based column", {
+  conc <- tibble::tibble(
+    `Depth sed [m]` = c(1, 2),
+    `Sea ice conc [%] (PI(III)IP25-based)` = c(40, 50),
+    `Sea ice conc [%] (satelite based)` = c(70, 80)
+  )
+  h <- suppressWarnings(harmonize_columns(conc, core_id = "core1", unmatched = "silent"))
+
+  expect_equal(h$value[h$parameter_name == "sea_ice_conc"], c(40, 50))
+  expect_equal(h$raw_column_name[h$parameter_name == "sea_ice_conc"], rep("Sea ice conc [%] (PI(III)IP25-based)", 2))
+})
+
+test_that("IP25 reported in ng/g converts to the canonical ug/g via unit_conversions.csv", {
+  x <- new_param_long(tibble::tibble(
+    core_id = "core1", pangaea_doi = "d", depth_cm = 1, parameter_group = "sea_ice",
+    parameter_name = "IP25_sed", species = NA_character_, value = 500, unit = "ng/g",
+    raw_column_name = "IP25/sed [ng/g]", is_interpolated = FALSE,
+    interp_gap_cm = NA_real_, retrieved_at = Sys.time()
+  ))
+  out <- standardize_units(x)
+  expect_equal(out$value, 0.5)
+  expect_equal(out$unit, "µg/g")
+})

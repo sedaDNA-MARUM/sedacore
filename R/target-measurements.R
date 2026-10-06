@@ -8,8 +8,17 @@
 #' must match the canonical names produced by [harmonize_columns()] (see
 #' `inst/extdata/column_synonyms.csv`).
 #'
+#' An optional `also_matches` column lists further canonical names
+#' (pipe-separated, e.g. `IRD_per_g|IRD_percent`) that count towards the
+#' same checklist entry. Needed where one proxy is reported in several
+#' genuinely different quantities (ice-rafted debris as counts, per
+#' gram, percent or flux) that must stay distinct `parameter_name`s so
+#' they're never interpolated into one another, but that a user checking
+#' "do I have IRD for this core?" would treat as the same thing.
+#'
 #' @param path Path to `target_measurements.csv`.
-#' @return A tibble: `parameter_name, notes`.
+#' @return A tibble: `parameter_name, notes`, plus `also_matches` when
+#'   present in the file.
 #' @export
 load_target_measurements <- function(
     path = system.file("extdata", "target_measurements.csv", package = "sedacore")) {
@@ -17,18 +26,51 @@ load_target_measurements <- function(
 }
 
 #' @noRd
-summarise_target_coverage <- function(data) {
+expand_target_aliases <- function(targets) {
+  also <- if ("also_matches" %in% names(targets)) targets$also_matches else rep(NA_character_, nrow(targets))
+  purrr::map2_dfr(targets$parameter_name, also, function(p, a) {
+    extra <- if (is.na(a) || !nzchar(a)) character() else trimws(strsplit(a, "|", fixed = TRUE)[[1]])
+    tibble::tibble(target = p, name = unique(c(p, extra)))
+  })
+}
+
+#' Every `parameter_name` the target checklist covers
+#'
+#' The checklist's own `parameter_name`s plus every `also_matches`
+#' alternative -- e.g. for restricting a fetch to "the target checklist"
+#' without accidentally excluding an IRD dataset because it reports
+#' `IRD_per_g` rather than the checklist's headline `IRD_count`.
+#'
+#' @param targets A target-measurement checklist, from
+#'   [load_target_measurements()].
+#' @return A character vector of unique `parameter_name`s.
+#' @export
+target_measurement_names <- function(targets = load_target_measurements()) {
+  unique(expand_target_aliases(targets)$name)
+}
+
+#' @noRd
+summarise_target_coverage <- function(data, aliases) {
+  empty <- tibble::tibble(
+    parameter_name = character(), n_measured = integer(),
+    depth_min_cm = numeric(), depth_max_cm = numeric(), source_core_id = character(),
+    found_as = character()
+  )
+  # Fold each alternative name onto the checklist entry it counts towards
+  # (keeping the original in found_as), so everything downstream just
+  # groups by the entry's own parameter_name.
+  data <- data[data$parameter_name %in% aliases$name, ]
   # dplyr::summarise() evaluates its expressions once even on a 0-row
   # input (to infer output types), which triggers min()/max()'s "no
   # non-missing arguments" warning despite the result being correctly
-  # empty -- a realistic case here (a core with nothing fetched yet), so
-  # short-circuit instead of just living with the noise.
+  # empty -- a realistic case here (a core with nothing fetched yet, or
+  # none of the checklist's parameters), so short-circuit instead of just
+  # living with the noise.
   if (nrow(data) == 0) {
-    return(tibble::tibble(
-      parameter_name = character(), n_measured = integer(),
-      depth_min_cm = numeric(), depth_max_cm = numeric(), source_core_id = character()
-    ))
+    return(empty)
   }
+  data$found_as <- data$parameter_name
+  data$parameter_name <- aliases$target[match(data$parameter_name, aliases$name)]
   data |>
     dplyr::group_by(.data$parameter_name) |>
     dplyr::summarise(
@@ -36,6 +78,7 @@ summarise_target_coverage <- function(data) {
       depth_min_cm = min(.data$depth_cm, na.rm = TRUE),
       depth_max_cm = max(.data$depth_cm, na.rm = TRUE),
       source_core_id = paste(sort(unique(.data$core_id)), collapse = ", "),
+      found_as = paste(sort(unique(.data$found_as)), collapse = ", "),
       .groups = "drop"
     )
 }
@@ -65,18 +108,22 @@ summarise_target_coverage <- function(data) {
 #'   fallback for parameters `core_id` has none of its own.
 #' @return A tibble: `parameter_name, notes, status` (`"found"`, `"found
 #'   in neighbour"`, or `"missing"`), `n_measured`, `depth_min_cm`,
-#'   `depth_max_cm` (`NA` when missing), and `source_core_id` (the core(s)
-#'   the reported data actually came from; `NA` when missing).
+#'   `depth_max_cm` (`NA` when missing), `source_core_id` (the core(s)
+#'   the reported data actually came from; `NA` when missing), and
+#'   `found_as` (the actual `parameter_name`(s) that satisfied the entry --
+#'   differs from `parameter_name` when an `also_matches` alternative
+#'   did; `NA` when missing).
 #' @export
 check_target_measurements <- function(x, core_id, targets = load_target_measurements(),
                                        neighbour_core_ids = character()) {
   validate_param_long(x)
 
-  own_coverage <- summarise_target_coverage(x[x$core_id == core_id & !x$is_interpolated, ])
+  aliases <- expand_target_aliases(targets)
+  own_coverage <- summarise_target_coverage(x[x$core_id == core_id & !x$is_interpolated, ], aliases)
 
   neighbour_core_ids <- unique(neighbour_core_ids[!is.na(neighbour_core_ids) & neighbour_core_ids != core_id])
   neighbour_coverage <- summarise_target_coverage(
-    x[x$core_id %in% neighbour_core_ids & !x$is_interpolated, ]
+    x[x$core_id %in% neighbour_core_ids & !x$is_interpolated, ], aliases
   )
 
   out <- dplyr::left_join(targets, own_coverage, by = "parameter_name")
@@ -87,6 +134,7 @@ check_target_measurements <- function(x, core_id, targets = load_target_measurem
     out$depth_min_cm[need_neighbour] <- fill$depth_min_cm
     out$depth_max_cm[need_neighbour] <- fill$depth_max_cm
     out$source_core_id[need_neighbour] <- fill$source_core_id
+    out$found_as[need_neighbour] <- fill$found_as
   }
 
   out$status <- dplyr::case_when(
@@ -97,6 +145,6 @@ check_target_measurements <- function(x, core_id, targets = load_target_measurem
   out$n_measured[is.na(out$n_measured)] <- 0L
 
   dplyr::select(out, "parameter_name", "notes", "status", "n_measured",
-    "depth_min_cm", "depth_max_cm", "source_core_id"
+    "depth_min_cm", "depth_max_cm", "source_core_id", "found_as"
   )
 }

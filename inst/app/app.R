@@ -281,8 +281,8 @@ server <- function(input, output, session) {
 
   observeEvent(input$use_target_checklist_btn, {
     updateSelectizeInput(session, "measurement_filter",
-      choices = sort(unique(c(known_parameter_names(), rv$param_long$parameter_name, load_target_measurements()$parameter_name))),
-      selected = load_target_measurements()$parameter_name
+      choices = sort(unique(c(known_parameter_names(), rv$param_long$parameter_name, target_measurement_names()))),
+      selected = target_measurement_names()
     )
   })
 
