@@ -143,13 +143,7 @@ find_neighbours <- function(x, core_id, radius_km, count = 200, progress = NULL,
     rlang::abort(sprintf("`core_id` \"%s\" must match exactly one row in `x`.", core_id))
   }
 
-  empty <- new_neighbour_registry(tibble::tibble(
-    core_id = character(), neighbour_doi = character(),
-    neighbour_core_id = character(), latitude = numeric(), longitude = numeric(),
-    distance_km = numeric(), source_program = character(),
-    date_time = as.POSIXct(character()), citation = character(),
-    available_parameters = character(), included_in_export = logical()
-  ))
+  empty <- empty_neighbour_registry()
 
   bbox <- bbox_from_radius(row$latitude, row$longitude, radius_km)
   candidates <- tryCatch(

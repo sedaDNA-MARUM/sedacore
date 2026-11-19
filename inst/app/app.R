@@ -2,81 +2,6 @@ library(shiny)
 library(leaflet)
 library(sedacore)
 
-empty_param_long <- function() {
-  new_param_long(tibble::tibble(
-    core_id = character(), pangaea_doi = character(), depth_cm = numeric(),
-    parameter_group = character(), parameter_name = character(),
-    species = character(), value = numeric(), unit = character(),
-    raw_column_name = character(), is_interpolated = logical(),
-    interp_gap_cm = numeric(), retrieved_at = as.POSIXct(character())
-  ))
-}
-
-# Like empty_param_long(), plus target_core_id: which active core's sample
-# depths a row was matched against. Usually equal to the row's own
-# core_id, but differs when the row's measurements were *borrowed* from a
-# neighbour core (see the interp_btn handler) -- kept as an explicit,
-# separate column so that's always visible rather than implied.
-empty_depth_matched_long <- function() {
-  x <- empty_param_long()
-  x$target_core_id <- character()
-  x
-}
-
-# Restricts h to the selected measurement_filter, same as any other
-# parameter -- except "age_model" rows are always kept regardless of the
-# filter. An age model isn't something you'd opt in/out of like a real
-# measurement; it's context needed (a) to show an age_ka column alongside
-# whatever's selected in the Harmonized data table, and (b) for
-# report_depth_coverage()'s age-based neighbour matching, which silently
-# has nothing to work with if its own core's age_model rows were filtered
-# away upstream of it.
-keep_selected_measurements <- function(h, selected) {
-  if (length(selected) == 0) {
-    return(h)
-  }
-  h[h$parameter_name %in% selected | h$parameter_name == "age_model", ]
-}
-
-# Turns a raw DOI (e.g. "10.1594/PANGAEA.228750") into a clickable link,
-# for DT columns rendered with escape = FALSE for that column. NA-safe
-# (NA stays NA, not "NA" text). base_url defaults to PANGAEA's own
-# landing-page resolver (nicer than the generic one for PANGAEA DOIs);
-# pass "https://doi.org/" for any other DOI (e.g. Zenodo's), which always
-# resolves correctly via the universal DOI registry.
-doi_link <- function(doi, base_url = "https://doi.pangaea.de/") {
-  ifelse(is.na(doi), NA_character_,
-    sprintf(
-      '<a href="%s%s" target="_blank" rel="noopener noreferrer">%s</a>',
-      base_url, doi, doi
-    )
-  )
-}
-
-empty_search_results <- function() {
-  tibble::tibble(
-    core_id = character(), score = numeric(), doi = character(),
-    size = numeric(), size_measure = character(), citation = character(),
-    available_parameters = character()
-  )
-}
-
-empty_zenodo_search_results <- function() {
-  tibble::tibble(
-    doi = character(), title = character(), description = character(), n_files = integer()
-  )
-}
-
-empty_neighbour_results <- function() {
-  new_neighbour_registry(tibble::tibble(
-    core_id = character(), neighbour_doi = character(),
-    neighbour_core_id = character(), latitude = numeric(), longitude = numeric(),
-    distance_km = numeric(), source_program = character(),
-    date_time = as.POSIXct(character()), citation = character(),
-    available_parameters = character(), included_in_export = logical()
-  ))
-}
-
 ui <- fluidPage(
   tags$head(
     tags$link(rel = "preconnect", href = "https://fonts.googleapis.com"),
@@ -246,7 +171,7 @@ server <- function(input, output, session) {
     depth_matched_long = empty_depth_matched_long(),
     search_results = empty_search_results(),
     zenodo_search_results = empty_zenodo_search_results(),
-    neighbour_results = empty_neighbour_results(),
+    neighbour_results = empty_neighbour_registry(),
     log = character()
   )
 
@@ -287,9 +212,9 @@ server <- function(input, output, session) {
   })
 
   load_cores <- function(path) {
-    raw <- readr::read_tsv(path, show_col_types = FALSE)
-    sr <- as_sample_registry(raw)
-    cr <- collapse_to_core_registry(sr)
+    registries <- load_core_registries(path)
+    sr <- registries$sample_registry
+    cr <- registries$core_registry
     rv$sample_registry <- sr
     rv$core_registry <- cr
     updateSelectInput(session, "active_core", choices = cr$core_id, selected = cr$core_id[1])
@@ -321,54 +246,17 @@ server <- function(input, output, session) {
   })
 
   # Shared by fetch_and_harmonize() (PANGAEA) and fetch_and_harmonize_zenodo()
-  # (Zenodo): harmonize one already-fetched raw table, apply the optional
-  # measurement filter, log, and append into rv$param_long. depth_col/
-  # synonym_map differ by source (PANGAEA vs IODP/Zenodo column
-  # conventions); synonym_csv_name is just for the fallback-columns log
-  # message, since the two sources have different CSVs to extend.
+  # (Zenodo). The harmonize + measurement-filter + message logic lives in
+  # harmonize_for_store() (tested); this just appends the rows and logs.
   harmonize_and_store <- function(raw_data, core_id, doi, depth_col, synonym_map, synonym_csv_name) {
-    h <- tryCatch(
-      harmonize_columns(
-        raw_data, core_id = core_id, doi = doi,
-        depth_col = depth_col, synonym_map = synonym_map, unmatched = "warn"
-      ),
-      error = function(e) {
-        append_log(paste("ERROR harmonizing:", conditionMessage(e)))
-        NULL
-      }
+    res <- harmonize_for_store(
+      raw_data, core_id, doi, depth_col, synonym_map,
+      measurement_filter = input$measurement_filter, synonym_csv_name = synonym_csv_name
     )
-    if (is.null(h) || nrow(h) == 0) {
-      return(invisible())
+    if (!is.null(res$data)) {
+      rv$param_long <- dplyr::bind_rows(rv$param_long, res$data)
     }
-
-    fallback <- attr(h, "fallback_columns")
-    dropped <- attr(h, "dropped_columns")
-    n_before_filter <- nrow(h)
-    # Optional user-set filter (see "Measurement filter" in the sidebar)
-    # -- applied *after* harmonize_columns() so nothing is ever lost
-    # during parsing itself, only at the point of deciding what to keep.
-    h <- keep_selected_measurements(h, input$measurement_filter)
-    if (nrow(h) > 0) {
-      rv$param_long <- dplyr::bind_rows(rv$param_long, h)
-      append_log(sprintf("Harmonized %d rows from %s.", nrow(h), doi))
-    } else {
-      append_log(sprintf(
-        "0 rows from %s after restricting to selected measurements (%d rows available before filtering).",
-        doi, n_before_filter
-      ))
-    }
-    if (length(fallback) > 0) {
-      append_log(sprintf(
-        "Not in %s, imported as-is: %s",
-        synonym_csv_name, paste(fallback, collapse = ", ")
-      ))
-    }
-    if (length(dropped) > 0) {
-      append_log(sprintf(
-        "Excluded (non-numeric, e.g. free-text comment fields): %s",
-        paste(dropped, collapse = ", ")
-      ))
-    }
+    for (msg in res$messages) append_log(msg)
   }
 
   fetch_and_harmonize <- function(doi, core_id) {
@@ -478,9 +366,9 @@ server <- function(input, output, session) {
   # IODP-ID convention, so the common case needs no manual typing.
   observeEvent(input$active_core, {
     req(input$active_core)
-    exp_match <- stringr::str_match(input$active_core, "^([0-9]{2,3})-U[0-9]{4}[A-Z]?$")
-    if (!is.na(exp_match[1, 2])) {
-      updateTextInput(session, "zenodo_expedition", value = exp_match[1, 2])
+    expedition <- iodp_expedition_from_core_id(input$active_core)
+    if (!is.na(expedition)) {
+      updateTextInput(session, "zenodo_expedition", value = expedition)
     }
   })
 
@@ -709,29 +597,20 @@ server <- function(input, output, session) {
       return(invisible())
     }
 
-    neighbour_ids <- unique(rv$neighbour_results$neighbour_core_id[
-      rv$neighbour_results$core_id == input$active_core
-    ])
-    neighbour_ids <- neighbour_ids[!is.na(neighbour_ids)]
-    candidate_core_ids <- union(input$active_core, neighbour_ids)
-    current <- rv$param_long[rv$param_long$core_id %in% candidate_core_ids, ]
-    # Independent of any filtering already applied at harmonize time --
-    # covers data fetched before the filter was set, and lets the filter
-    # be changed freely without re-fetching. age_model rows are always
-    # kept (see keep_selected_measurements()) -- report_depth_coverage()
-    # needs each core's own age model regardless of what's selected.
-    current <- keep_selected_measurements(current, input$measurement_filter)
-    if (nrow(current) == 0) {
-      msg <- "No harmonized data yet for the active core"
-      if (length(neighbour_ids) > 0) msg <- paste0(msg, " or its fetched neighbours")
-      if (length(input$measurement_filter) > 0) msg <- paste0(msg, " matching the selected measurement filter")
-      append_log(paste0(msg, "; fetch some first."))
+    # Candidate selection and every message below live in tested helpers
+    # (interp_candidate_data(), depth_coverage_messages()); the observer
+    # only wires inputs to them. age_model rows always survive the filter.
+    candidates <- interp_candidate_data(
+      rv$param_long, rv$neighbour_results, input$active_core, input$measurement_filter
+    )
+    if (!is.null(candidates$message)) {
+      append_log(candidates$message)
       return(invisible())
     }
 
     report <- tryCatch(
       report_depth_coverage(
-        current, sample_depths,
+        candidates$data, sample_depths,
         target_core_id = input$active_core, sample_registry = rv$sample_registry
       ),
       error = function(e) {
@@ -749,71 +628,7 @@ server <- function(input, output, session) {
       report
     )
 
-    n_measured <- sum(report$match_status == "measured")
-    n_interp <- sum(report$match_status == "interpolated")
-    n_no_data <- sum(report$match_status == "no data in that depth range")
-    n_gap <- sum(report$match_status == "gap too large to interpolate")
-    n_age <- sum(report$match_basis == "age", na.rm = TRUE)
-    n_refused <- sum(report$match_basis == "refused", na.rm = TRUE)
-    borrowed_ids <- unique(report$core_id[!is.na(report$core_id) & report$core_id != input$active_core])
-    source_note <- if (n_age > 0) {
-      sprintf(" (%d borrowed from neighbour core(s) by age: %s)", n_age, paste(borrowed_ids, collapse = ", "))
-    } else {
-      ""
-    }
-    append_log(sprintf(
-      "Depth coverage for %s's %d sample depth(s) x %d parameter(s): %d measured, %d interpolated, %d out of retrieved range, %d gaps too large%s.",
-      input$active_core, length(unique(sample_depths)), length(unique(report$parameter_name)),
-      n_measured, n_interp, n_no_data, n_gap, source_note
-    ))
-
-    if (n_no_data > 0) {
-      no_data_summary <- report[report$match_status == "no data in that depth range", ]
-      no_data_summary <- unique(no_data_summary[, c("parameter_group", "parameter_name", "measured_depth_min", "measured_depth_max")])
-      details <- sprintf(
-        "%s (%s): retrieved %.0f-%.0f cm",
-        no_data_summary$parameter_name, no_data_summary$parameter_group,
-        no_data_summary$measured_depth_min, no_data_summary$measured_depth_max
-      )
-      append_log(sprintf(
-        "Depth mismatch: your samples are at %.0f-%.0f cm, but retrieved data doesn't cover that range for: %s.",
-        min(sample_depths, na.rm = TRUE), max(sample_depths, na.rm = TRUE), paste(details, collapse = "; ")
-      ))
-    }
-
-    # Cross-core integration is refused outright (never silently
-    # depth-matched) when a neighbour has no age model, or the target has
-    # no age_ka on file for a sample depth -- surface exactly why, once
-    # per neighbour, rather than leaving it to a generic "gap too large"
-    # count that wouldn't say what's actually missing.
-    if (n_refused > 0) {
-      # match_basis is NA for cells no path ever attempted (see
-      # report_depth_coverage()); a bare `== "refused"` index would pull
-      # all-NA rows in alongside the real ones and make the any()/if
-      # below NA -- which crashed the observer.
-      refused <- report[!is.na(report$match_basis) & report$match_basis == "refused", ]
-      no_age_model <- unique(refused$core_id[refused$match_status == "no age model for cross-core match"])
-      no_age_model <- no_age_model[!is.na(no_age_model)]
-      for (nb in no_age_model) {
-        has_xrf <- any(refused$has_xrf_data[refused$core_id == nb], na.rm = TRUE)
-        xrf_note <- if (has_xrf) {
-          " XRF data is available for this core if you want to build a depth-time correlation manually."
-        } else {
-          ""
-        }
-        append_log(sprintf(
-          "Skipped %s: no age model available for cross-core matching.%s",
-          nb, xrf_note
-        ))
-      }
-      if (any(refused$match_status == "target core has no age_ka for this sample depth", na.rm = TRUE)) {
-        append_log(sprintf(
-          "Skipped cross-core matching for %d sample depth(s): no age_ka on file for %s in sample_registry.",
-          length(unique(refused$depth_cm[refused$match_status == "target core has no age_ka for this sample depth"])),
-          input$active_core
-        ))
-      }
-    }
+    for (msg in depth_coverage_messages(report, input$active_core, sample_depths)) append_log(msg)
   })
 
   # An age model isn't shown as its own measurement row here -- it's
@@ -824,18 +639,7 @@ server <- function(input, output, session) {
   # core_age_model()/depth_to_age() machinery as cross-core neighbour
   # matching, just applied within each row's own core.
   output$param_table <- DT::renderDataTable({
-    display <- rv$param_long[rv$param_long$parameter_name != "age_model", ]
-    display$age_ka <- NA_real_
-    for (cid in unique(display$core_id)) {
-      age_model <- core_age_model(rv$param_long, cid)
-      if (nrow(age_model) > 0) {
-        idx <- display$core_id == cid
-        display$age_ka[idx] <- depth_to_age(age_model, display$depth_cm[idx])
-      }
-    }
-    display <- dplyr::relocate(display, "age_ka", .after = "depth_cm")
-
-    dt <- DT::datatable(display, options = list(pageLength = 15, scrollX = TRUE))
+    dt <- DT::datatable(attach_age_ka(rv$param_long), options = list(pageLength = 15, scrollX = TRUE))
     DT::formatStyle(dt, "is_interpolated",
       backgroundColor = DT::styleEqual(c(TRUE, FALSE), c("#fff3cd", "white"))
     )
@@ -866,17 +670,7 @@ server <- function(input, output, session) {
   # Quick-reference list of which measurement types have been retrieved so
   # far, for visualization/orientation before diving into the full table.
   output$measurement_summary <- DT::renderDataTable({
-    summary_tbl <- rv$param_long |>
-      dplyr::group_by(parameter_group, parameter_name, unit) |>
-      dplyr::summarise(
-        n_cores = dplyr::n_distinct(core_id),
-        cores = paste(sort(unique(core_id)), collapse = ", "),
-        n_measured = sum(!is_interpolated),
-        n_interpolated = sum(is_interpolated),
-        .groups = "drop"
-      ) |>
-      dplyr::arrange(parameter_group, parameter_name)
-    DT::datatable(summary_tbl, options = list(pageLength = 20, scrollX = TRUE))
+    DT::datatable(summarise_measurements(rv$param_long), options = list(pageLength = 20, scrollX = TRUE))
   })
 
   # Reactive (no button needed -- cheap to compute), always reflecting the
@@ -935,26 +729,12 @@ server <- function(input, output, session) {
   })
 
   output$export_btn <- downloadHandler(
-    filename = function() {
-      core_part <- if (!is.null(input$active_core) && nzchar(input$active_core)) {
-        gsub("[^A-Za-z0-9_-]+", "_", input$active_core)
-      } else {
-        "export"
-      }
-      sprintf("sedacore_%s_%s.tsv", core_part, format(Sys.Date()))
-    },
+    filename = function() export_filename(input$active_core, "harmonized"),
     content = function(file) write_harmonized_tsv(rv$param_long, file)
   )
 
   output$export_depth_matched_btn <- downloadHandler(
-    filename = function() {
-      core_part <- if (!is.null(input$active_core) && nzchar(input$active_core)) {
-        gsub("[^A-Za-z0-9_-]+", "_", input$active_core)
-      } else {
-        "export"
-      }
-      sprintf("sedacore_depth_matched_%s_%s.tsv", core_part, format(Sys.Date()))
-    },
+    filename = function() export_filename(input$active_core, "depth_matched"),
     content = function(file) write_harmonized_tsv(rv$depth_matched_long, file)
   )
 

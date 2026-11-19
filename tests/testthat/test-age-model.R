@@ -73,3 +73,8 @@ test_that("depth_to_age is vectorized and independent per depth", {
   out <- depth_to_age(am, c(0, 5, 20, 100), snap_tolerance_cm = 0)
   expect_equal(out, c(0, 5, 20, NA_real_))
 })
+
+test_that("depth_to_age returns NA for an NA depth instead of erroring (age-only series)", {
+  am <- tibble::tibble(depth_cm = c(0, 10, 20), age_ka = c(0, 10, 20))
+  expect_equal(depth_to_age(am, c(NA, 5), snap_tolerance_cm = 0), c(NA_real_, 5))
+})

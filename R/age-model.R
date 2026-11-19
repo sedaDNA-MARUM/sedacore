@@ -52,6 +52,10 @@ depth_to_age <- function(age_model, depth_cm, gap_multiplier = 10, snap_toleranc
   max_gap <- gap_multiplier * spacing
 
   vapply(depth_cm, function(td) {
+    # Age-only series (no depth) carry NA depth_cm; nothing to convert.
+    if (is.na(td)) {
+      return(NA_real_)
+    }
     exact <- which(depths == td)
     if (length(exact) > 0) {
       return(ages[exact[1]])
