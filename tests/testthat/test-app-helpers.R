@@ -296,3 +296,36 @@ test_that("load_core_registries reads the bundled example into both registries",
   expect_true(inherits(res$core_registry, "core_registry"))
   expect_gt(nrow(res$core_registry), 0)
 })
+
+# -- depth_matched_display ---------------------------------------------------------------
+
+test_that("depth_matched_display works on the empty initial table (no matched_age_ka yet)", {
+  out <- depth_matched_display(empty_depth_matched_long())
+  expect_equal(nrow(out), 0)
+  expect_equal(which(names(out) == "age_ka"), which(names(out) == "depth_cm") + 1)
+})
+
+test_that("depth_matched_display hides age_model rows and renames matched_age_ka to age_ka", {
+  x <- dplyr::bind_rows(
+    mk_pl("N", "TOC", c(0, 20), c(1, 2)), mk_pl("N", "age_model", c(0, 20), c(0, 20), "age")
+  )
+  # sr() puts the target's samples at 50 and 60 cm, with ages 0 and 20 ka.
+  report <- report_depth_coverage(x, c(50, 60), target_core_id = "T", sample_registry = sr(c(0, 20)))
+  out <- depth_matched_display(report)
+  expect_false("age_model" %in% out$parameter_name)
+  expect_false("matched_age_ka" %in% names(out))
+  expect_equal(out$age_ka[order(out$depth_cm)], c(0, 20))
+  expect_equal(which(names(out) == "age_ka"), which(names(out) == "depth_cm") + 1)
+})
+
+# -- checklist_summary ---------------------------------------------------------------------
+
+test_that("checklist_summary words each combination of statuses", {
+  cl <- function(...) tibble::tibble(parameter_name = c("A", "B", "C"), status = c(...))
+  expect_equal(checklist_summary(cl("found", "found", "found"), "T"), "All 3 target measurement(s) found for T.")
+  expect_equal(
+    checklist_summary(cl("found", "found in neighbour", "missing"), "T"),
+    "For T -- found only in a neighbour core: B; missing entirely: C."
+  )
+  expect_equal(checklist_summary(cl("found", "missing", "missing"), "T"), "For T -- missing entirely: B, C.")
+})

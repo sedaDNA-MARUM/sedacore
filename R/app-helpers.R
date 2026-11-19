@@ -411,3 +411,49 @@ load_core_registries <- function(path) {
   sr <- as_sample_registry(raw)
   list(sample_registry = sr, core_registry = collapse_to_core_registry(sr))
 }
+
+#' Display form of the depth/age-matched table
+#'
+#' Hides `age_model` rows (their information is the `age_ka` column every
+#' other row already carries) and shows `matched_age_ka` as `age_ka`
+#' right after `depth_cm`. Works on the empty initial table too, which has
+#' no `matched_age_ka` column yet (the app used to error when that tab was
+#' opened before the first interpolation).
+#'
+#' @param x A `depth_matched_long` table (see [empty_depth_matched_long()]).
+#' @return `x` reshaped for display.
+#' @keywords internal
+#' @export
+depth_matched_display <- function(x) {
+  x <- x[x$parameter_name != "age_model", ]
+  if ("matched_age_ka" %in% names(x)) {
+    x <- dplyr::rename(x, age_ka = "matched_age_ka")
+  } else {
+    x$age_ka <- NA_real_
+  }
+  dplyr::relocate(x, "age_ka", .after = "depth_cm")
+}
+
+#' One-sentence summary of a target checklist
+#'
+#' @param checklist Output of [check_target_measurements()].
+#' @param core_id The core it was computed for.
+#' @return A single string.
+#' @keywords internal
+#' @export
+checklist_summary <- function(checklist, core_id) {
+  missing <- checklist$parameter_name[checklist$status == "missing"]
+  in_neighbour <- checklist$parameter_name[checklist$status == "found in neighbour"]
+  parts <- character()
+  if (length(in_neighbour) > 0) {
+    parts <- c(parts, sprintf("found only in a neighbour core: %s", paste(in_neighbour, collapse = ", ")))
+  }
+  if (length(missing) > 0) {
+    parts <- c(parts, sprintf("missing entirely: %s", paste(missing, collapse = ", ")))
+  }
+  if (length(parts) == 0) {
+    sprintf("All %d target measurement(s) found for %s.", nrow(checklist), core_id)
+  } else {
+    sprintf("For %s -- %s.", core_id, paste(parts, collapse = "; "))
+  }
+}

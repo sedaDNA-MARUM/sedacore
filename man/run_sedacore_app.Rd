@@ -7,14 +7,14 @@
 run_sedacore_app(...)
 }
 \arguments{
-\item{...}{Passed to \code{\link[shiny:runApp]{shiny::runApp()}}.}
+\item{...}{Passed to \code{\link[shiny:runApp]{shiny::runApp()}} (e.g. \code{port}, \code{host},
+\code{launch.browser}).}
 }
 \value{
 Does not return; launches the app.
 }
 \description{
-A thin wrapper around \code{\link[shiny:runApp]{shiny::runApp()}}; all business logic lives in
-the already-tested \verb{R/*.R} functions (map/search/retrieve/harmonize/
-neighbour-search/interpolate/export) -- \code{inst/app/app.R} only wires
-reactives to those functions.
+A thin wrapper around \code{\link[shiny:runApp]{shiny::runApp()}} on \code{\link[=sedacore_app]{sedacore_app()}}. All the
+logic lives in tested package functions and modules (\code{R/app-helpers.R},
+\verb{R/mod-*.R}); nothing is hidden in a script.
 }

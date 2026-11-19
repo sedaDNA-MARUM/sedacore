@@ -8,6 +8,8 @@ Description: Tools to visualize marine sediment core locations, retrieve
     and parse matching PANGAEA (and IODP) datasets, discover neighbouring
     cores within a radius, and harmonize units and interpolate depths into
     a unified long-format table for use in sedaDNA and other metaanalyses.
+Depends:
+    R (>= 4.1.0)
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
