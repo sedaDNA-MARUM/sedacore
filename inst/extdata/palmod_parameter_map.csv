@@ -1,0 +1,37 @@
+palmod_parameter,material,unit_raw,parameter_name,notes
+benthic.d18O,,,d18O_benthic,"habitat kept in the name: planktonic and benthic d18O must never be pooled; unit (permil PDB vs VPDB) stays in the unit column and is not converted"
+planktonic.d18O,,,d18O_planktonic,
+benthic.d13C,,,d13C_benthic,
+planktonic.d13C,,,d13C_planktonic,
+planktonic.MgCa,,,MgCa_planktonic,"raw Mg/Ca ratio (mmol/mol); the derived temperature is a separate surface.temp series"
+benthic.MgCa,,,MgCa_benthic,
+UK37,,,UK37,"alkenone unsaturation index; same canonical name as the PANGAEA harmonizer"
+TEX86,,,TEX86,
+LDI,,,LDI,
+BIT,,,BIT,
+CaCO3,,,CaCO3,
+TOC,,,TOC,
+BSi,,,BSi,"biogenic silica (opal)"
+DBD,,,bulk_density_dry,
+IRD,,percent,IRD_percent,"IRD unit decides the canonical name, so counts, per-gram and percent are never mixed (same names as the PANGAEA harmonizer)"
+IRD,,no_g,IRD_per_g,
+IRD,,n_g,IRD_per_g,
+IRD,,n,IRD_count,
+IRD,,no,IRD_count,"number of grains (one record, 'void corrected')"
+IRD,,n_cm3,IRD_per_cm3,"clasts per cm3 from CT scanning -- a different quantity from grains per gram"
+IRD,,,IRD_other,"unit-less / arbitrary-unit IRD index (e.g. PS1388_3); catch-all for any IRD unit not listed above"
+C37.concentration,,,C37_concentration,"alkenone concentration (ng/g or ug/g -- units differ across records, kept raw)"
+planktonic.foram.abundance,,percent,planktonic_foram_abundance_percent,
+planktonic.foram.abundance,,counts,planktonic_foram_abundance_counts,
+deep.temp,,,deep_temp,
+seaice.concentration,,,sea_ice_conc,
+surface.temp,MgCa,,SST_MgCa,"temperature series are named by the method that produced them: PALMOD's single surface.temp parameter hides MgCa, UK37, TEX86 and assemblage-based estimates, which have different uncertainties and biases"
+surface.temp,UK37,,SST_UK37,
+surface.temp,TEX86,,SST_TEX86,
+surface.temp,LDI,,SST_LDI,
+surface.temp,planktonic foraminifera assemblages,,SST_foram_assemblage,
+surface.temp,diatom assemblages,,SST_diatom_assemblage,
+surface.temp,dinocyst assemblages,,SST_dinocyst_assemblage,
+surface.temp,radiolaria assemblages,,SST_radiolaria_assemblage,
+surface.temp,aquatic palynomorphs assemblages,,SST_palynomorph_assemblage,
+surface.temp,,,SST_other,"any other / unknown method"

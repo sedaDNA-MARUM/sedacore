@@ -1,0 +1,44 @@
+parameter_name,proxy_class,family,description
+SST_MgCa,SST,temperature,Sea-surface temperature from planktonic foraminiferal Mg/Ca
+SST_UK37,SST,temperature,Sea-surface temperature from alkenone UK37
+SST_TEX86,SST,temperature,Sea-surface temperature from GDGT TEX86
+SST_LDI,SST,temperature,Sea-surface temperature from the long-chain diol index
+SST_foram_assemblage,SST,temperature,Sea-surface temperature from planktonic foraminiferal assemblages
+SST_diatom_assemblage,SST,temperature,Sea-surface temperature from diatom assemblages
+SST_dinocyst_assemblage,SST,temperature,Sea-surface temperature from dinocyst assemblages
+SST_radiolaria_assemblage,SST,temperature,Sea-surface temperature from radiolarian assemblages
+SST_palynomorph_assemblage,SST,temperature,Sea-surface temperature from aquatic palynomorph assemblages
+SST_other,SST,temperature,Sea-surface temperature from another or unspecified method
+deep_temp,deep temperature,temperature,Deep-water temperature
+MgCa_planktonic,Mg/Ca,temperature,Planktonic foraminiferal Mg/Ca ratio
+MgCa_benthic,Mg/Ca,temperature,Benthic foraminiferal Mg/Ca ratio
+UK37,alkenone UK37,temperature,Alkenone unsaturation index
+TEX86,GDGT index,temperature,GDGT TEX86 index
+LDI,GDGT index,temperature,Long-chain diol index
+BIT,GDGT index,biomarker,Branched/isoprenoid tetraether index (terrestrial input)
+d18O_planktonic,d18O planktonic,isotopes,Planktonic foraminiferal oxygen isotopes
+d18O_benthic,d18O benthic,isotopes,Benthic foraminiferal oxygen isotopes
+d13C_planktonic,d13C planktonic,isotopes,Planktonic foraminiferal carbon isotopes
+d13C_benthic,d13C benthic,isotopes,Benthic foraminiferal carbon isotopes
+CaCO3,carbonate,bulk_geochemistry,Calcium carbonate content
+TOC,organic carbon,bulk_geochemistry,Total organic carbon
+BSi,opal,bulk_geochemistry,Biogenic silica (opal) content
+bulk_density_dry,density,bulk_geochemistry,Dry bulk density
+C37_concentration,alkenone concentration,productivity,Alkenone (C37) concentration
+planktonic_foram_abundance_percent,planktonic foram abundance,assemblage,Planktonic foraminifera abundance (percent)
+planktonic_foram_abundance_counts,planktonic foram abundance,assemblage,Planktonic foraminifera abundance (counts)
+IRD_count,IRD,ice,Ice-rafted debris counts
+IRD_per_g,IRD,ice,Ice-rafted debris per gram
+IRD_percent,IRD,ice,Ice-rafted debris percent
+IRD_per_cm3,IRD,ice,Ice-rafted debris clasts per cm3 (CT)
+IRD_other,IRD,ice,Ice-rafted debris index in other or arbitrary units
+IRD_flux_count,IRD,ice,Ice-rafted debris flux (counts)
+IRD_flux_mass,IRD,ice,Ice-rafted debris flux (mass)
+sea_ice_conc,sea ice,ice,Sea-ice concentration
+IP25_sed,sea ice,ice,IP25 sea-ice biomarker per sediment
+IP25_toc,sea ice,ice,IP25 sea-ice biomarker per TOC
+PBIP25,sea ice,ice,PBIP25 sea-ice index
+PDIP25,sea ice,ice,PDIP25 sea-ice index
+P_III_IP25,sea ice,ice,PIII-IP25 sea-ice index
+F_curta_gr,sea ice,ice,Fragilariopsis curta group (sea-ice diatoms)
+F_curta_cylindrus,sea ice,ice,Fragilariopsis curta + cylindrus (sea-ice diatoms)
