@@ -9,6 +9,7 @@ write_bundle(
   dir,
   sources = list(),
   region = "global",
+  crosswalked = FALSE,
   overwrite = FALSE
 )
 }
@@ -22,6 +23,10 @@ write_bundle(
 \code{id}, \code{name}, \code{version}, \code{doi}, \code{license} and \code{citation}.}
 
 \item{region}{Free-text note on what region/scope the bundle covers.}
+
+\item{crosswalked}{Whether sites were folded onto canonical ids and a
+\code{preferred} flag set (see \code{\link[=assemble_bundle]{assemble_bundle()}}); recorded in the
+manifest so that \code{\link[=bundle_series]{bundle_series()}} knows it can rely on \code{preferred}.}
 
 \item{overwrite}{Replace an existing bundle in \code{dir}.}
 }

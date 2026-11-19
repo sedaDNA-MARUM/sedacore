@@ -9,7 +9,8 @@ bundle_series(
   site_id = NULL,
   parameter_name = NULL,
   age_range = NULL,
-  role = "central"
+  role = "central",
+  preferred_only = isTRUE(b$manifest$crosswalked)
 )
 }
 \arguments{
@@ -21,6 +22,11 @@ bundle_series(
 
 \item{role}{Which roles to return; default only the central estimate
 (uncertainty companions are folded into \code{value_lo}/\code{value_hi}).}
+
+\item{preferred_only}{Return only each measurement's preferred series, so
+a record compiled by two sources is counted once. Defaults to \code{TRUE} for
+a crosswalked bundle (see \code{\link[=assemble_bundle]{assemble_bundle()}}), and is not available for
+one that is not.}
 }
 \value{
 A tibble, ordered by site, series and age.

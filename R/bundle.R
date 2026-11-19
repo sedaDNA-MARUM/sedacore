@@ -43,6 +43,19 @@ bundle_schema <- list(
   site_links = c(
     site_id = "character", link_type = "character", label = "character",
     url = "character", source = "character"
+  ),
+  # Records that exist (compiled in an atlas, or found in an index) but whose
+  # age-controlled values are not in `series`: the "exists, not usable with
+  # ages yet" state of the gap map. site_id may be NA for an index entry not
+  # yet matched to a site.
+  indexed_records = c(
+    record_id = "character", source = "character", site_id = "character",
+    latitude = "numeric", longitude = "numeric", proxy_class = "character",
+    species = "character", doi = "character", citation = "character", has_radiocarbon = "logical"
+  ),
+  site_aliases = c(
+    source = "character", alias = "character", site_id = "character",
+    match_method = "character", distance_km = "numeric"
   )
 )
 
@@ -120,11 +133,15 @@ check_bundle_table <- function(x, name) {
 #' @param sources A list of source descriptions, each a list with at least
 #'   `id`, `name`, `version`, `doi`, `license` and `citation`.
 #' @param region Free-text note on what region/scope the bundle covers.
+#' @param crosswalked Whether sites were folded onto canonical ids and a
+#'   `preferred` flag set (see [assemble_bundle()]); recorded in the
+#'   manifest so that [bundle_series()] knows it can rely on `preferred`.
 #' @param overwrite Replace an existing bundle in `dir`.
 #' @return `dir`, invisibly.
 #' @keywords internal
 #' @export
-write_bundle <- function(tables, dir, sources = list(), region = "global", overwrite = FALSE) {
+write_bundle <- function(tables, dir, sources = list(), region = "global", crosswalked = FALSE,
+                         overwrite = FALSE) {
   if (is.null(names(tables)) || any(!nzchar(names(tables)))) {
     rlang::abort("`tables` must be a named list.")
   }
@@ -158,6 +175,7 @@ write_bundle <- function(tables, dir, sources = list(), region = "global", overw
     package = utils::packageName() %||% "sedacore",
     package_version = as.character(utils::packageVersion(utils::packageName() %||% "sedacore")),
     region = region,
+    crosswalked = crosswalked,
     tables = files,
     sources = sources
   )
@@ -281,10 +299,15 @@ bundle_table <- function(b, name) {
 #' @param age_range Optional length-2 numeric, ka BP (inclusive).
 #' @param role Which roles to return; default only the central estimate
 #'   (uncertainty companions are folded into `value_lo`/`value_hi`).
+#' @param preferred_only Return only each measurement's preferred series, so
+#'   a record compiled by two sources is counted once. Defaults to `TRUE` for
+#'   a crosswalked bundle (see [assemble_bundle()]), and is not available for
+#'   one that is not.
 #' @return A tibble, ordered by site, series and age.
 #' @keywords internal
 #' @export
-bundle_series <- function(b, site_id = NULL, parameter_name = NULL, age_range = NULL, role = "central") {
+bundle_series <- function(b, site_id = NULL, parameter_name = NULL, age_range = NULL, role = "central",
+                          preferred_only = isTRUE(b$manifest$crosswalked)) {
   where <- character()
   params <- list()
   add_in <- function(col, vals) {
@@ -294,6 +317,12 @@ bundle_series <- function(b, site_id = NULL, parameter_name = NULL, age_range = 
   if (!is.null(site_id)) add_in("site_id", site_id)
   if (!is.null(parameter_name)) add_in("parameter_name", parameter_name)
   if (!is.null(role)) add_in("role", role)
+  if (preferred_only) {
+    if (!isTRUE(b$manifest$crosswalked)) {
+      rlang::abort("This bundle has no `preferred` flag (it was not built with assemble_bundle()).")
+    }
+    where <- c(where, "preferred")
+  }
   if (!is.null(age_range)) {
     where <- c(where, "age_ka BETWEEN ? AND ?")
     params <- c(params, as.list(age_range))
